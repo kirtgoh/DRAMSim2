@@ -295,7 +295,78 @@ void addressMapping(uint64_t physicalAddress, unsigned &newTransactionChan, unsi
 		newTransactionRow = tempA ^ tempB;
 
 	}
+	// a real Nehalem CPU address mapping
+	else if (addressMappingScheme == Nehalem)
+	{
+/* 
+ *        |         row remain                    | b2    |   row[3:0]    | c1| b1| rank  |          Col[8:3]     |ch |colLowBits |ChipOffset |
+ *   -+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+
+ *    | 33| 32| 31| 30| 29| 28| 27| 26| 25| 24| 23| 22| 21| 20| 19| 18| 17| 16| 15| 14| 13| 12| 11| 10|  9|  8|  7|  6|  5|  4|  3|  2|  1|  0|
+ *   -+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+
+ */
+		//chan:rank:bank:row:col
+		unsigned col6;
+		unsigned col1;
+		unsigned col_remain;
+		unsigned bit16;
+		
+		tempA = physicalAddress;
+		bit16 = (physicalAddress & 0x400) >> 10;
+		physicalAddress = physicalAddress >> channelBitWidth;
+		tempB = physicalAddress << channelBitWidth;
+		newTransactionChan = (tempA ^ tempB) ^ bit16;	// need to xor bit 16
 
+		tempA = physicalAddress;
+		physicalAddress = physicalAddress >> 6;
+		tempB = physicalAddress << 6;
+		col6 = tempA ^ tempB;
+
+		tempA = physicalAddress;
+		physicalAddress = physicalAddress >> rankBitWidth;
+		tempB = physicalAddress << rankBitWidth;
+		newTransactionRank = tempA ^ tempB;
+
+		unsigned b1;
+		unsigned b2;
+
+		tempA = physicalAddress;
+		physicalAddress = physicalAddress >> 1;
+		tempB = physicalAddress << 1;
+		b1 = tempA ^ tempB;
+
+		tempA = physicalAddress;
+		physicalAddress = physicalAddress >> 1;
+		tempB = physicalAddress << 1;
+		col1 = tempA ^ tempB;
+
+		unsigned row4;
+		unsigned row_remain;
+
+		tempA = physicalAddress;
+		physicalAddress = physicalAddress >> 4;
+		tempB = physicalAddress << 4;
+		row4 = tempA ^ tempB;
+
+		tempA = physicalAddress; // need to change b_remain instead of 2
+		physicalAddress = physicalAddress >> (bankBitWidth - 1);
+		tempB = physicalAddress << (bankBitWidth - 1);
+		b2 = tempA ^ tempB;
+
+		tempA = physicalAddress;
+		physicalAddress = physicalAddress >> (rowBitWidth - 4);
+		tempB = physicalAddress << (rowBitWidth - 4);
+		row_remain = tempA ^ tempB;
+
+		tempA = physicalAddress;
+		physicalAddress = physicalAddress >> (colHighBitWidth - 7);
+		tempB = physicalAddress << (colHighBitWidth - 7);
+		col_remain = tempA ^ tempB;
+
+		newTransactionBank = b1 + (b2 << 1) ;
+		newTransactionColumn = col6 + (col1 << 6) + (col_remain << 7);
+		newTransactionRow = row4 +  (row_remain << 4);
+
+	}
 	else
 	{
 		ERROR("== Error - Unknown Address Mapping Scheme");

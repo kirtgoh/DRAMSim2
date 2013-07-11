@@ -148,7 +148,8 @@ enum AddressMappingScheme
 	Scheme4,
 	Scheme5,
 	Scheme6,
-	Scheme7
+	Scheme7,
+	Nehalem
 };
 
 // used in MemoryController and CommandQueue

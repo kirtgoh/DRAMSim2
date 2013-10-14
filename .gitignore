@@ -6,3 +6,8 @@ results/
 *.swp
 DRAMSim
 libdramsim.so
+
+cscope.in.out
+cscope.out
+cscope.po.out
+

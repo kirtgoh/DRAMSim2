@@ -45,6 +45,7 @@
 #include "BankState.h"
 #include "Rank.h"
 #include "CSVWriter.h"
+#include "TransactionQueue.h"
 #include <map>
 
 using namespace std;
@@ -71,7 +72,8 @@ public:
 
 
 	//fields
-	vector<Transaction *> transactionQueue;
+	//vector<Transaction *> transactionQueue;
+	TransactionQueue transactionQueue;
 private:
 	ostream &dramsim_log;
 	vector< vector <BankState> > bankStates;
@@ -96,6 +98,8 @@ private:
 	//output file
 	CSVWriter &csvOut; 
 
+	// to caculate RBHR(Row Buffer Hit Rate)
+	bool isHit;
 	// these packets are counting down waiting to be transmitted on the "bus"
 	BusPacket *outgoingCmdPacket;
 	unsigned cmdCyclesLeft;

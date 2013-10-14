@@ -72,6 +72,8 @@ MemoryController::MemoryController(MemorySystem *parent, CSVWriter &csvOut_, ost
 	//get handle on parent
 	parentMemorySystem = parent;
 
+	// RBHR reated fields
+	isHit = false;
 
 	//bus related fields
 	outgoingCmdPacket = NULL;
@@ -83,7 +85,7 @@ MemoryController::MemoryController(MemorySystem *parent, CSVWriter &csvOut_, ost
 	currentClockCycle = 0;
 
 	//reserve memory for vectors
-	transactionQueue.reserve(TRANS_QUEUE_DEPTH);
+	//transactionQueue.reserve(TRANS_QUEUE_DEPTH);
 	powerDown = vector<bool>(NUM_RANKS,false);
 	grandTotalBankAccesses = vector<uint64_t>(NUM_RANKS*NUM_BANKS,0);
 	totalReadsPerBank = vector<uint64_t>(NUM_RANKS*NUM_BANKS,0);
@@ -489,86 +491,102 @@ void MemoryController::update()
 
 	}
 
-	for (size_t i=0;i<transactionQueue.size();i++)
+	if (transactionQueue.size())
 	{
-		//pop off top transaction from queue
-		//
-		//	assuming simple scheduling at the moment
-		//	will eventually add policies here
-		Transaction *transaction = transactionQueue[i];
+		unsigned actualRank = -1;
+		unsigned actualBank = -1;
+		unsigned queuePos = -1;
 
-		//map address to rank,bank,row,col
-		unsigned newTransactionChan, newTransactionRank, newTransactionBank, newTransactionRow, newTransactionColumn;
-
-		// pass these in as references so they get set by the addressMapping function
-		addressMapping(transaction->address, newTransactionChan, newTransactionRank, newTransactionBank, newTransactionRow, newTransactionColumn);
-
-		//if we have room, break up the transaction into the appropriate commands
-		//and add them to the command queue
-		if (commandQueue.hasRoomFor(2, newTransactionRank, newTransactionBank))
-		{
-			if (DEBUG_ADDR_MAP) 
+		for(unsigned r = 0; r < NUM_RANKS; r++)
+			for(unsigned b = 0; b < NUM_BANKS; b++)
 			{
-				PRINTN("== New Transaction - Mapping Address [0x" << hex << transaction->address << dec << "]");
-				if (transaction->transactionType == DATA_READ) 
+				actualRank = (r + transactionQueue.m_nLastRank + 1) % NUM_RANKS;
+				actualBank = (b + transactionQueue.m_nLastBank + 1) % NUM_BANKS;
+
+
+				queuePos = transactionQueue.find_first_of(actualRank, actualBank);
+
+				if (queuePos)
 				{
-					PRINT(" (Read)");
-				}
-				else
-				{
-					PRINT(" (Write)");
-				}
-				PRINT("  Rank : " << newTransactionRank);
-				PRINT("  Bank : " << newTransactionBank);
-				PRINT("  Row  : " << newTransactionRow);
-				PRINT("  Col  : " << newTransactionColumn);
+					Transaction *transaction = transactionQueue.m_vecpTransQueue[queuePos];
+                    
+					//map address to rank,bank,row,col
+					unsigned newTransactionChan, newTransactionRank, newTransactionBank, newTransactionRow, newTransactionColumn;
+                    
+					// pass these in as references so they get set by the addressMapping function
+					addressMapping(transaction->address, newTransactionChan, newTransactionRank, newTransactionBank, newTransactionRow, newTransactionColumn);
+                    
+					//if we have room, break up the transaction into the appropriate commands
+					//and add them to the command queue
+					if (commandQueue.hasRoomFor(2, newTransactionRank, newTransactionBank))
+					{
+						if (DEBUG_ADDR_MAP) 
+						{
+							PRINTN("== New Transaction - Mapping Address [0x" << hex << transaction->address << dec << "]");
+							if (transaction->transactionType == DATA_READ) 
+							{
+								PRINT(" (Read)");
+							}
+							else
+							{
+								PRINT(" (Write)");
+							}
+							PRINT("  Rank : " << newTransactionRank);
+							PRINT("  Bank : " << newTransactionBank);
+							PRINT("  Row  : " << newTransactionRow);
+							PRINT("  Col  : " << newTransactionColumn);
+						}
+                    
+						//now that we know there is room in the command queue, we can remove from the transaction queue
+						//transactionQueue.erase(transactionQueue.begin()+i);
+						transaction = transactionQueue.popTrans(actualRank,actualBank,queuePos, isHit);
+                    
+						//create activate command to the row we just translated
+						BusPacket *ACTcommand = new BusPacket(ACTIVATE, transaction->address,
+								newTransactionColumn, newTransactionRow, newTransactionRank,
+								newTransactionBank, 0, dramsim_log);
+                    
+						//create read or write command and enqueue it
+						BusPacketType bpType = transaction->getBusPacketType();
+						BusPacket *command = new BusPacket(bpType, transaction->address,
+								newTransactionColumn, newTransactionRow, newTransactionRank,
+								newTransactionBank, transaction->data, dramsim_log);
+                    
+                    
+                    
+						commandQueue.enqueue(ACTcommand);
+						commandQueue.enqueue(command);
+						
+                    
+						// If we have a read, save the transaction so when the data comes back
+						// in a bus packet, we can staple it back into a transaction and return it
+						if (transaction->transactionType == DATA_READ)
+						{
+							pendingReadTransactions.push_back(transaction);
+						}
+						else
+						{
+							// just delete the transaction now that it's a buspacket
+							delete transaction; 
+						}
+						/* only allow one transaction to be scheduled per cycle -- this should
+						 * be a reasonable assumption considering how much logic would be
+						 * required to schedule multiple entries per cycle (parallel data
+						 * lines, switching logic, decision logic)
+						 */
+						transactionQueue.m_nLastRank = actualRank;
+						transactionQueue.m_nLastBank = actualBank;
+						break;
+					}
+					else // no room, do nothing this cycle
+					{
+						transactionQueue.m_nLastRank = actualRank;
+						transactionQueue.m_nLastBank = actualBank;
+						//PRINT( "== Warning - No room in command queue" << endl;
+					}
+				} 
 			}
-
-
-
-			//now that we know there is room in the command queue, we can remove from the transaction queue
-			transactionQueue.erase(transactionQueue.begin()+i);
-
-			//create activate command to the row we just translated
-			BusPacket *ACTcommand = new BusPacket(ACTIVATE, transaction->address,
-					newTransactionColumn, newTransactionRow, newTransactionRank,
-					newTransactionBank, 0, dramsim_log);
-
-			//create read or write command and enqueue it
-			BusPacketType bpType = transaction->getBusPacketType();
-			BusPacket *command = new BusPacket(bpType, transaction->address,
-					newTransactionColumn, newTransactionRow, newTransactionRank,
-					newTransactionBank, transaction->data, dramsim_log);
-
-
-
-			commandQueue.enqueue(ACTcommand);
-			commandQueue.enqueue(command);
-
-			// If we have a read, save the transaction so when the data comes back
-			// in a bus packet, we can staple it back into a transaction and return it
-			if (transaction->transactionType == DATA_READ)
-			{
-				pendingReadTransactions.push_back(transaction);
-			}
-			else
-			{
-				// just delete the transaction now that it's a buspacket
-				delete transaction; 
-			}
-			/* only allow one transaction to be scheduled per cycle -- this should
-			 * be a reasonable assumption considering how much logic would be
-			 * required to schedule multiple entries per cycle (parallel data
-			 * lines, switching logic, decision logic)
-			 */
-			break;
-		}
-		else // no room, do nothing this cycle
-		{
-			//PRINT( "== Warning - No room in command queue" << endl;
-		}
-	}
-
+	} /* if transactionQueue.size() */ 
 
 	//calculate power
 	//  this is done on a per-rank basis, since power characterization is done per device (not per bank)
@@ -713,7 +731,7 @@ void MemoryController::update()
 		PRINT("== Printing transaction queue");
 		for (size_t i=0;i<transactionQueue.size();i++)
 		{
-			PRINTN("  " << i << "] "<< *transactionQueue[i]);
+			//PRINTN("  " << i << "] "<< *transactionQueue[i]);
 		}
 	}
 
@@ -770,7 +788,7 @@ bool MemoryController::addTransaction(Transaction *trans)
 	if (WillAcceptTransaction())
 	{
 		trans->timeAdded = currentClockCycle;
-		transactionQueue.push_back(trans);
+		transactionQueue.insertTrans(trans);
 		return true;
 	}
 	else 

@@ -74,6 +74,8 @@ MemoryController::MemoryController(MemorySystem *parent, CSVWriter &csvOut_, ost
 
 	// RBHR reated fields
 	isHit = false;
+	grandHitTrans = 0;
+	grandPopTrans = 0;
 
 	//bus related fields
 	outgoingCmdPacket = NULL;
@@ -540,6 +542,11 @@ void MemoryController::update()
 						//now that we know there is room in the command queue, we can remove from the transaction queue
 						//transactionQueue.erase(transactionQueue.begin()+i);
 						transaction = transactionQueue.popTrans(actualRank,actualBank,queuePos, isHit);
+
+						if (isHit)
+							grandHitTrans++;
+
+						grandPopTrans++;
                     
 						//create activate command to the row we just translated
 						BusPacket *ACTcommand = new BusPacket(ACTIVATE, transaction->address,
@@ -955,6 +962,10 @@ void MemoryController::printStats(bool finalStats)
 					PRINT( "  b"<<j<<": "<<grandTotalBankAccesses[SEQUENTIAL(i,j)]);
 				}
 			}
+		}
+		if (VIS_FILE_OUTPUT)
+		{
+			csvOut.getOutputStream() << "RBHR ="<< (float) grandHitTrans / grandPopTrans<<endl;
 		}
 
 	}

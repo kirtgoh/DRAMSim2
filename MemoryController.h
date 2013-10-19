@@ -100,6 +100,8 @@ private:
 
 	// to caculate RBHR(Row Buffer Hit Rate)
 	bool isHit;
+	uint64_t grandHitTrans;
+	uint64_t grandPopTrans;
 	// these packets are counting down waiting to be transmitted on the "bus"
 	BusPacket *outgoingCmdPacket;
 	unsigned cmdCyclesLeft;

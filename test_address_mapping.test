@@ -1,0 +1,124 @@
+#include <iostream>
+#include <stdint.h>
+using std::ostream;
+
+#define DEBUG(str)  std::cout<< str <<std::endl;
+
+unsigned inline dramsim_log2(unsigned value)
+{
+	unsigned logbase2 = 0;
+	unsigned orig = value;
+	value>>=1;
+	while (value>0)
+	{
+		value >>= 1;
+		logbase2++;
+	}
+	if ((unsigned)1<<logbase2<orig)logbase2++;
+	return logbase2;
+}
+
+int main ()
+{
+	uint64_t physicalAddress = 0x1D599CCD6;
+	//uint64_t physicalAddress = 0x1D598CCD6;
+
+	uint64_t tempA, tempB;
+	unsigned transactionSize = (64/8) * 8;//(JEDEC_DATA_BUS_BITS/8)*BL;
+	uint64_t transactionMask =  transactionSize - 1; //ex: (64 bit bus width) x (8 Burst Length) - 1 = 64 bytes - 1 = 63 = 0x3f mask
+	unsigned channelBitWidth = dramsim_log2(2); //NUm_CHANS = 2 
+	unsigned	rankBitWidth = dramsim_log2(2); // NUM_RANKS = 2
+	unsigned	bankBitWidth = dramsim_log2(8); // NUM_BANKS = 8
+	unsigned	rowBitWidth = dramsim_log2(16384); //NUM_ROWS = 16384
+	unsigned	colBitWidth = dramsim_log2(1024); //NUM_COLS = 1024
+	unsigned	byteOffsetWidth = dramsim_log2((64/8));
+
+	physicalAddress >>= byteOffsetWidth;
+	unsigned colLowBitWidth = dramsim_log2(transactionSize) - byteOffsetWidth;
+
+	physicalAddress >>= colLowBitWidth;
+	unsigned colHighBitWidth = colBitWidth - colLowBitWidth; 
+	
+	DEBUG( "physicalAddress:"<<physicalAddress)
+	// debug
+	DEBUG( "Bit widths: ch:"<<channelBitWidth<<" r:"<<rankBitWidth<<" b:"<<bankBitWidth
+				<<" row:"<<rowBitWidth<<" colLow:"<<colLowBitWidth
+				<< " colHigh:"<<colHighBitWidth<<" off:"<<byteOffsetWidth);
+
+/* 
+ *        |         row remain                    | b2    |   row[3:0]    | c1| b1| rank  |          Col[8:3]     |ch |colLowBits |ChipOffset |
+ *   -+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+
+ *    | 33| 32| 31| 30| 29| 28| 27| 26| 25| 24| 23| 22| 21| 20| 19| 18| 17| 16| 15| 14| 13| 12| 11| 10|  9|  8|  7|  6|  5|  4|  3|  2|  1|  0|
+ *   -+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+
+ *   -+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+
+ *    | 0 | 1 | 1 | 1 | 0 | 1 | 0 | 1 | 0 | 1 | 1 | 0 | 0 | 1 | 1 | 0 | 0 | 1 | 1 | 1 | 0 | 0 | 1 | 1 | 0 | 0 | 1 | 1 | 0 | 1 | 0 | 1 | 1 | 0 |
+ *   -+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+
+ */
+		//chan:rank:bank:row:col
+		unsigned col6;
+		unsigned col1;
+		unsigned col_remain;
+		unsigned bit16;
+		
+		tempA = physicalAddress;
+		bit16 = (physicalAddress & 0x400) >> 10;
+		DEBUG("gen bit16 " << bit16);
+		physicalAddress = physicalAddress >> channelBitWidth;
+		tempB = physicalAddress << channelBitWidth;
+		unsigned newTransactionChan = (tempA ^ tempB) ^ bit16;	// need to xor bit 16
+		DEBUG("gening chan: " << (tempA ^ tempB ^ bit16));
+
+		tempA = physicalAddress;
+		physicalAddress = physicalAddress >> 6;
+		tempB = physicalAddress << 6;
+		col6 = tempA ^ tempB;
+
+		tempA = physicalAddress;
+		physicalAddress = physicalAddress >> rankBitWidth;
+		tempB = physicalAddress << rankBitWidth;
+		unsigned newTransactionRank = tempA ^ tempB;
+
+		unsigned b1;
+		unsigned b2;
+
+		tempA = physicalAddress;
+		physicalAddress = physicalAddress >> 1;
+		tempB = physicalAddress << 1;
+		b1 = tempA ^ tempB;
+
+		tempA = physicalAddress;
+		physicalAddress = physicalAddress >> 1;
+		tempB = physicalAddress << 1;
+		col1 = tempA ^ tempB;
+
+		unsigned row4;
+		unsigned row_remain;
+
+		tempA = physicalAddress;
+		physicalAddress = physicalAddress >> 4;
+		tempB = physicalAddress << 4;
+		row4 = tempA ^ tempB;
+
+		tempA = physicalAddress; // need to change b_remain instead of 2
+		physicalAddress = physicalAddress >> (bankBitWidth - 1);
+		tempB = physicalAddress << (bankBitWidth - 1);
+		b2 = tempA ^ tempB;
+
+		tempA = physicalAddress;
+		physicalAddress = physicalAddress >> (rowBitWidth - 4);
+		tempB = physicalAddress << (rowBitWidth - 4);
+		row_remain = tempA ^ tempB;
+
+		tempA = physicalAddress;
+		physicalAddress = physicalAddress >> (colHighBitWidth - 7);
+		tempB = physicalAddress << (colHighBitWidth - 7);
+		col_remain = tempA ^ tempB;
+
+		unsigned newTransactionBank = b1 + (b2 << 1) ;
+		unsigned newTransactionColumn = col6 + (col1 << 6) + (col_remain << 7);
+		unsigned newTransactionRow = row4 +  (row_remain << 4);
+
+	 	DEBUG("row " << newTransactionRow << "bank " << newTransactionBank 
+                           <<"rank " <<newTransactionRank<<"Channel "<<newTransactionChan
+                            <<"cow "<< newTransactionColumn);
+	}

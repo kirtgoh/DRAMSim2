@@ -42,10 +42,10 @@ $(LIB_NAME_MACOS): $(POBJ)
 
 # build dependency list via gcc -M and save to a .dep file
 %.dep : %.cpp
-	@$(CXX) -M $(CXXFLAGS) $< > $@
+	@$(CXX) -MM $(CXXFLAGS) $< > $@
 
 %.deppo : %.cpp
-	@$(CXX) -M $(CXXFLAGS) -MT"$*.po" $< > $@
+	@$(CXX) -MM $(CXXFLAGS) -MT"$*.po" $< > $@
 
 # build all .cpp files to .o files
 %.o : %.cpp

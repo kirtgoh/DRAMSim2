@@ -12,3 +12,9 @@ cscope.out
 cscope.po.out
 
 #system.*.ini
+
+# scons temporary/db files
+.sconsign.dblite
+
+# ctags file
+tags

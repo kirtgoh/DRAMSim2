@@ -9,17 +9,31 @@ dirs = ['gtest']
 src_files = Glob('*.cpp')
 
 # Setup the environment
-
 env = Environment(
-	CXXFLAGS = "-DNO_STORAGE -Wall -DDEBUG_BUILD" 
+	CXXFLAGS = '-DNO_STORAGE -Wall -DDEBUG_BUILD',
+	CPPPATH = '.'
 )
 
-debug = ARGUMENTS.get('DEBUG',0)
+# debug enable/disable
+debug = ARGUMENTS.get('debug',0)
+
 if int(debug) == 1:
 	env.Append(CXXFLAGS = ' -O0 -g')
 else:
 	env.Append(CXXFLAGS = ' -O3')
 
-env['CPPPATH'] = ['.']
-objs = env.Object(src_files)
-env.Program('DRAMSim',objs)
+# libdramsim.so Builder
+lib_bld_action = "$CXX -g -shared -Wl,-soname,$TARGET -o $TARGET $SOURCES"
+lib_bld = Builder(action = Action(lib_bld_action))
+env['BUILDERS']['LIB_BLD'] = lib_bld
+
+# scons lib=0/1, 
+lib = ARGUMENTS.get('lib',0)
+
+if int(lib) >= 1: #libdramsim.so
+	env.Append(CXXFLAGS = ' -DLOG_OUTPUT -fPIC')
+	pobjs = env.Object(src_files)
+	env.LIB_BLD('libdramsim.so', pobjs)
+else: #DRAMSim
+	objs = env.Object(src_files)
+	env.Program('DRAMSim',objs)

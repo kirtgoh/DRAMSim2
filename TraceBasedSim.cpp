@@ -48,6 +48,8 @@
 #include "Transaction.h"
 #include "IniReader.h"
 
+#include <test.h>
+
 
 using namespace DRAMSim;
 using namespace std;
@@ -141,6 +143,7 @@ void usage()
 	cout << "DRAMSim2 Usage: " << endl;
 	cout << "DRAMSim -t tracefile -s system.ini -d ini/device.ini [-c #] [-p pwd] [-q] [-S 2048] [-n] [-o OPTION_A=1234,tRC=14,tFAW=19]" <<endl;
 	cout << "\t-t, --tracefile=FILENAME \tspecify a tracefile to run  "<<endl;
+	cout << "\t-g, --gtest \t\t\tRun Test cases  "<<endl;
 	cout << "\t-s, --systemini=FILENAME \tspecify an ini file that describes the memory system parameters  "<<endl;
 	cout << "\t-d, --deviceini=FILENAME \tspecify an ini file that describes the device-level parameters"<<endl;
 	cout << "\t-c, --numcycles=# \t\tspecify number of cycles to run the simulation for [default=30] "<<endl;
@@ -378,6 +381,7 @@ int main(int argc, char **argv)
 	string *visFilename = NULL;
 	unsigned megsOfMemory=2048;
 	bool useClockCycle=true;
+	bool is_test = false;
 	
 	IniReader::OverrideMap *paramOverrides = NULL; 
 
@@ -396,12 +400,13 @@ int main(int argc, char **argv)
 			{"option",  required_argument,	0, 'o'},
 			{"quiet",  no_argument, &SHOW_SIM_OUTPUT, 'q'},
 			{"help", no_argument, 0, 'h'},
+			{"gtest", no_argument, 0, 'g'},
 			{"size", required_argument, 0, 'S'},
 			{"visfile", required_argument, 0, 'v'},
 			{0, 0, 0, 0}
 		};
 		int option_index=0; //for getopt
-		c = getopt_long (argc, argv, "t:s:c:d:o:p:S:v:qn", long_options, &option_index);
+		c = getopt_long (argc, argv, "t:s:c:d:o:p:S:v:qhg", long_options, &option_index);
 		if (c == -1)
 		{
 			break;
@@ -427,6 +432,9 @@ int main(int argc, char **argv)
 			break;
 		case 't':
 			traceFileName = string(optarg);
+			break;
+		case 'g':
+			is_test = true; 
 			break;
 		case 's':
 			systemIniFilename = string(optarg);
@@ -460,6 +468,9 @@ int main(int argc, char **argv)
 			exit(-1);
 			break;
 		}
+	}
+	if (is_test) {
+		run_tests();
 	}
 
 	// get the trace filename
@@ -510,7 +521,8 @@ int main(int argc, char **argv)
 	MultiChannelMemorySystem *memorySystem = new MultiChannelMemorySystem(deviceIniFilename, systemIniFilename, pwdString, traceFileName, megsOfMemory, visFilename, paramOverrides);
 	// set the frequency ratio to 1:1
 	memorySystem->setCPUClockSpeed(0); 
-	std::ostream &dramsim_logfile = memorySystem->getLogFile(); 
+	// Goh remove
+	// std::ostream &dramsim_logfile = memorySystem->getLogFile(); 
 	// don't need this anymore 
 	delete paramOverrides;
 

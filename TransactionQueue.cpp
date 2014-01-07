@@ -99,9 +99,9 @@ unsigned TransactionQueue::find_first_of(unsigned rank, unsigned bank)
 unsigned TransactionQueue::find_first_of(unsigned rank, unsigned bank)
 {
 	uint64_t posLeastCycle = 0;
-	uint64_t posRowLeastCycle = 0;	//same row , lestCycle
+	//uint64_t posRowLeastCycle = 0;	//same row , lestCycle
 	Item* check;
-	Item* lastPop = index[rank][bank][0];		//last pop one 
+	//Item* lastPop = index[rank][bank][0];		//last pop one 
 	
 	unsigned i;
 	for (i = 1; i <= TRANS_QUEUE_DEPTH; i++)

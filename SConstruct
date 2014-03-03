@@ -64,7 +64,8 @@ env = base_env.Clone()
 env.Decider('MD5-timestamp')
 
 env['CXXFLAGS'] = '-DNO_STORAGE -Wall -DDEBUG_BUILD'
-env['CPPPATH'] = ['.']
+env['CPPPATH'] = []
+env['CPPPATH'].append(os.getcwd())
 
 # List of subdirectories where we have source code
 dirs = ['lib']
@@ -87,6 +88,12 @@ if int(debug) == 1:
 else:
 	env.Append(CXXFLAGS = ' -O3')
 	env['tests'] = False
+
+# RowBufferCache enable/disable
+cache = ARGUMENTS.get('cache',0)
+
+if int(cache) == 1:
+	env.Append(CCFLAGS = '-DROWBUFFERCACHE')
 
 # Include all the subdirectories into the CCFLAGS
 for dir in dirs:

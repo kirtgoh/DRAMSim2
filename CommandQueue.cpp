@@ -46,8 +46,15 @@
 
 using namespace DRAMSim;
 
-CommandQueue::CommandQueue(vector< vector<BankState> > &states, ostream &dramsim_log_) :
+CommandQueue::CommandQueue(vector< vector<BankState> > &states,
+#ifdef ROWBUFFERCACHE
+		vector< RowBufferCache > &caches,
+#endif
+		ostream &dramsim_log_) :
 		dramsim_log(dramsim_log_),
+#ifdef ROWBUFFERCACHE
+		rankCaches(caches),
+#endif
 		bankStates(states),
 		nextBank(0),
 		nextRank(0),

@@ -137,6 +137,10 @@ SchedulingPolicy schedulingPolicy;
 AddressMappingScheme addressMappingScheme;
 QueuingStructure queuingStructure;
 
+#ifdef ROWBUFFERCACHE
+CachePolicy cachePolicy;
+#endif
+
 
 //Map the string names to the variables they set
 static ConfigMap configMap[] =
@@ -551,6 +555,16 @@ void IniReader::InitEnumsFromStrings()
 		cout << "WARNING: unknown address mapping scheme '"<<ADDRESS_MAPPING_SCHEME<<"'; valid values are 'scheme1'...'scheme7'. Defaulting to scheme1"<<endl;
 		addressMappingScheme = Scheme1;
 	}
+#ifdef ROWBUFFERCACHE
+	if (CACHE_REPLACE_POLICY == "lru")
+	{
+		cachePolicy = LRU;
+		if (DEBUG_INI_READER)
+		{
+			DEBUG("CACHE POLICY: lru");
+		}
+	}
+#endif
 
 	if (ROW_BUFFER_POLICY == "open_page")
 	{

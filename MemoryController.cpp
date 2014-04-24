@@ -63,7 +63,11 @@ using namespace DRAMSim;
 MemoryController::MemoryController(MemorySystem *parent, CSVWriter &csvOut_, ostream &dramsim_log_) :
 		dramsim_log(dramsim_log_),
 		bankStates(NUM_RANKS, vector<BankState>(NUM_BANKS, dramsim_log)),
+#ifdef ROWBUFFERCACHE
+		commandQueue(bankStates, rankCaches, dramsim_log_),
+#else
 		commandQueue(bankStates, dramsim_log_),
+#endif
 		poppedBusPacket(NULL),
 		csvOut(csvOut_),
 		totalTransactions(0),
@@ -94,6 +98,15 @@ MemoryController::MemoryController(MemorySystem *parent, CSVWriter &csvOut_, ost
 	totalWritesPerBank = vector<uint64_t>(NUM_RANKS*NUM_BANKS,0);
 	totalReadsPerRank = vector<uint64_t>(NUM_RANKS,0);
 	totalWritesPerRank = vector<uint64_t>(NUM_RANKS,0);
+
+#ifdef ROWBUFFERCACHE
+	rankCaches.reserve(NUM_RANKS);
+	for (size_t i=0; i < NUM_RANKS; i++)
+		rankCaches.push_back(RowBufferCache(NUM_BANKS * CACHE_STORAGE, CACHE_WAY_COUNT, CACHE_LINE_SIZE, cachePolicy));
+	DEBUG("===== RowBufferCache enabled =====");
+//	DEBUG("CACHE_STORAGE : "<< rankCaches[0].get_size() /1024 << "KB | " << rankCaches[0].get_way_count() <<" Ways | "
+//		   	<< rankCaches[0].get_set_count()<<" Sets | "<<rankCaches[0].get_line_size()<<"B Cacheline per rank");
+#endif
 
 	writeDataCountdown.reserve(NUM_RANKS);
 	writeDataToSend.reserve(NUM_RANKS);

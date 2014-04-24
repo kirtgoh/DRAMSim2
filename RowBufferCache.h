@@ -19,13 +19,6 @@ namespace DRAMSim {
 //-------------------------------------------------------------------------------------
 // generic defines and data types
 //
-enum CachePolicy	// cache replacement policy 
-{
-	LRU,		// replace least recently used block (perfect LRU)
-	RANDOM,		// replace a random block
-	FIFO		// replace the oldest block in the set
-};
-
 enum CacheState		// cache line state
 {
 	LINE_INVALID = 0,

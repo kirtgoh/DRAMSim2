@@ -47,6 +47,10 @@
 #include "SystemConfiguration.h"
 #include "SimulatorObject.h"
 
+#ifdef ROWBUFFERCACHE
+#include "RowBufferCache.h"
+#endif
+
 using namespace std;
 
 namespace DRAMSim
@@ -62,7 +66,12 @@ public:
 	typedef vector<BusPacket2D> BusPacket3D;
 
 	//functions
+#ifdef ROWBUFFERCACHE
+	CommandQueue(vector< vector<BankState> > &states, vector<RowBufferCache> &caches, ostream &dramsim_log);
+#else
 	CommandQueue(vector< vector<BankState> > &states, ostream &dramsim_log);
+#endif
+
 	virtual ~CommandQueue(); 
 
 	void enqueue(BusPacket *newBusPacket);
@@ -79,6 +88,11 @@ public:
 	
 	BusPacket3D queues; // 3D array of BusPacket pointers
 	vector< vector<BankState> > &bankStates;
+
+#ifdef ROWBUFFERCACHE
+	vector<RowBufferCache > &rankCaches;
+#endif
+
 private:
 	void nextRankAndBank(unsigned &rank, unsigned &bank);
 	//fields

@@ -90,7 +90,9 @@ void CacheSet::update_way_list(CacheLine *blk, CachePolicy policy)
 RowBufferCache::RowBufferCache (unsigned kilosOfCache,
 								unsigned ways,
 								unsigned linelen,
-								enum CachePolicy repl)
+								enum CachePolicy repl):
+	// initialize cache stats
+	hits(0), misses(0), replacements(0), writebacks(0)	
 {
 	// check all cache parameters!
 	// cacheline must be at least one datum large, i.e., 64 bytes for common
@@ -136,11 +138,6 @@ RowBufferCache::RowBufferCache (unsigned kilosOfCache,
 	mask_set = numOfSets - 1;							// binary mask used to obtain cache sets address
 	mask_tag = (1 << (32 - shift_tag)) - 1;				// strip set and block bits, remain is tag address
 
-	// initialize cache stats
-	hits = 0;
-	misses = 0;
-	replacements = 0;
-	writebacks = 0;	
 }
 
 //-------------------------------------------------------------------------------------

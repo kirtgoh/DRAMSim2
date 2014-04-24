@@ -182,6 +182,13 @@ enum SchedulingPolicy
 	BankThenRankRoundRobin
 };
 
+// Only used in RowBufferCache
+enum CachePolicy	// cache replacement policy 
+{
+	LRU,		// replace least recently used block (perfect LRU)
+	RANDOM,		// replace a random block
+	FIFO		// replace the oldest block in the set
+};
 
 // set by IniReader.cpp
 
@@ -195,6 +202,10 @@ extern RowBufferPolicy rowBufferPolicy;
 extern SchedulingPolicy schedulingPolicy;
 extern AddressMappingScheme addressMappingScheme;
 extern QueuingStructure queuingStructure;
+
+#ifdef ROWBUFFERCACHE
+extern CachePolicy cachePolicy;
+#endif
 //
 //FUNCTIONS
 //

@@ -48,6 +48,10 @@
 #include "TransactionQueue.h"
 #include <map>
 
+#ifdef ROWBUFFERBUFFER
+#include "RowBufferBuffer.h"
+#endif
+
 using namespace std;
 
 namespace DRAMSim
@@ -77,6 +81,9 @@ public:
 private:
 	ostream &dramsim_log;
 	vector< vector <BankState> > bankStates;
+#ifdef ROWBUFFERBUFFER
+	 vector < vector<RowBufferBuffer> > bankCaches;
+#endif
 	//functions
 	void insertHistogram(unsigned latencyValue, unsigned rank, unsigned bank);
 

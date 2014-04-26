@@ -46,9 +46,16 @@
 
 using namespace DRAMSim;
 
-CommandQueue::CommandQueue(vector< vector<BankState> > &states, ostream &dramsim_log_) :
+CommandQueue::CommandQueue(vector< vector<BankState> > &states,
+#ifdef ROWBUFFERBUFFER
+		vector < vector<RowBufferBuffer> > &caches,
+#endif
+		ostream &dramsim_log_) :
 		dramsim_log(dramsim_log_),
 		bankStates(states),
+#ifdef ROWBUFFERBUFFER
+		bankCaches(caches),
+#endif
 		nextBank(0),
 		nextRank(0),
 		nextBankPRE(0),
@@ -416,6 +423,21 @@ bool CommandQueue::pop(BusPacket **busPacket)
 					for (size_t i=0;i<queue.size();i++)
 					{
 						BusPacket *packet = queue[i];
+#ifdef ROWBUFFERBUFFER
+						//TODO: RowBufferBuffer operate
+/* 						if (isRBRhit(packet)) {
+ * 							hits++;
+ * 							read or write;
+ * 							state change if needed;
+ * 						}
+ */
+/* 						if (caches[nextRank][nextBank].isHit(packet))
+ * 						{
+ * 
+ * 						}
+ */
+
+#endif
 						if (isIssuable(packet))
 						{
 							//check for dependencies
@@ -517,6 +539,11 @@ bool CommandQueue::pop(BusPacket **busPacket)
 								sendingPRE = true;
 								rowAccessCounters[nextRankPRE][nextBankPRE] = 0;
 								*busPacket = new BusPacket(PRECHARGE, 0, 0, 0, nextRankPRE, nextBankPRE, 0, dramsim_log);
+#ifdef ROWBUFFERBUFER
+						//		bankCaches[nextRankPRE][nextBankPRE].openRowAddress = bankStates[nextRankPRE][nextBankPRE].openRowAddress;
+								//TODO: state change and other operates if
+								//replacement occurs
+#endif
 								break;
 							}
 						}

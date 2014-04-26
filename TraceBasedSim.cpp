@@ -379,7 +379,7 @@ int main(int argc, char **argv)
 	string deviceIniFilename;
 	string pwdString;
 	string *visFilename = NULL;
-	unsigned megsOfMemory=2048;
+	unsigned megsOfMemory=4096;
 	bool useClockCycle=true;
 	bool is_test = false;
 	

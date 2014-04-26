@@ -314,7 +314,8 @@ void addressMapping(uint64_t physicalAddress, unsigned &newTransactionChan, unsi
 		bit16 = (physicalAddress & 0x400) >> 10;
 		physicalAddress = physicalAddress >> channelBitWidth;
 		tempB = physicalAddress << channelBitWidth;
-		newTransactionChan = (tempA ^ tempB) ^ bit16;	// need to xor bit 16
+		//newTransactionChan = (tempA ^ tempB) ^ bit16;	// need to xor bit 16
+		newTransactionChan = (tempA ^ tempB);
 
 		tempA = physicalAddress;
 		physicalAddress = physicalAddress >> 6;

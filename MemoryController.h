@@ -78,12 +78,12 @@ public:
 	//fields
 	//vector<Transaction *> transactionQueue;
 	TransactionQueue transactionQueue;
+#ifdef ROWBUFFERBUFFER
+	vector < vector<RowBufferBuffer> > bankCaches;
+#endif
 private:
 	ostream &dramsim_log;
 	vector< vector <BankState> > bankStates;
-#ifdef ROWBUFFERBUFFER
-	 vector < vector<RowBufferBuffer> > bankCaches;
-#endif
 	//functions
 	void insertHistogram(unsigned latencyValue, unsigned rank, unsigned bank);
 

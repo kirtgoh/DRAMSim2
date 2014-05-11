@@ -457,6 +457,13 @@ void MemoryController::update()
 				bankStates[rank][bank].stateChangeCountdown = tRP;
 				bankStates[rank][bank].nextActivate = max(currentClockCycle + tRP, bankStates[rank][bank].nextActivate);
 
+#ifdef ROWBUFFERBUFFER
+				bankCaches[rank][bank].openRowAddress = poppedBusPacket->row;
+				bankCaches[rank][bank].currentBufferState = Valid;
+				// FIXME: initial here ?
+				bankCaches[rank][bank].nextRead = max(currentClockCycle + BL/2, bankCaches[rank][bank].nextRead);
+#endif
+
 				break;
 			case REFRESH:
 				//add energy to account for total
@@ -475,6 +482,28 @@ void MemoryController::update()
 				}
 
 				break;
+#ifdef ROWBUFFERBUFFER
+			case READ_B:
+				for (size_t i=0;i<NUM_RANKS;i++)
+				{
+					for (size_t j=0;j<NUM_BANKS;j++)
+					{
+						if (i!=poppedBusPacket->rank)
+						{
+							//check to make sure it is active before trying to set (save's time?)
+							if (bankCaches[i][j].currentBufferState == Valid)
+							{
+								bankCaches[i][j].nextRead = max(currentClockCycle + BL/2 + tRTRS, bankCaches[i][j].nextRead);
+							}
+						}
+						else
+						{
+							bankStates[i][j].nextRead = max(currentClockCycle + BL/2, bankStates[i][j].nextRead);
+						}
+					}
+				}
+				break;
+#endif
 			default:
 				ERROR("== Error - Popped a command we shouldn't have of type : " << poppedBusPacket->busPacketType);
 				exit(0);

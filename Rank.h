@@ -40,6 +40,10 @@
 #include "Bank.h"
 #include "BankState.h"
 
+#ifdef ROWBUFFERBUFFER
+#include "RowBufferBuffer.h"
+#endif
+
 using namespace std;
 using namespace DRAMSim;
 
@@ -79,6 +83,9 @@ public:
 	vector<unsigned> readReturnCountdown;
 	vector<Bank> banks;
 	vector<BankState> bankStates;
+#ifdef ROWBUFFERBUFFER
+	vector<RowBufferBuffer> cacheStates;
+#endif
 
 };
 }

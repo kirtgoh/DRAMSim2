@@ -431,11 +431,62 @@ bool CommandQueue::pop(BusPacket **busPacket)
  * 							state change if needed;
  * 						}
  */
-/* 						if (caches[nextRank][nextBank].isHit(packet))
- * 						{
- * 
- * 						}
- */
+ 						if (bankCaches[nextRank][nextBank].isHit(packet))
+  						{
+							//isIssuable?
+							if (isIssuableRBR(packet))
+							{
+								//check for dependencies
+								bool dependencyFound = false;
+								for (size_t j=0;j<i;j++)
+								{
+									BusPacket *prevPacket = queue[j];
+									if (prevPacket->busPacketType != ACTIVATE &&
+											prevPacket->bank == packet->bank &&
+											prevPacket->row == packet->row)
+									{
+										dependencyFound = true;
+										break;
+									}
+								}
+								if (dependencyFound) continue;
+								
+								// TODO: need new type
+								if (packet->busPacketType == READ) 
+								{
+									packet->busPacketType = READ_B;
+									printf("RBR hit!!\n");
+								}
+
+								*busPacket = packet;
+
+								//if the bus packet before is an activate, that is the act that was
+								//	paired with the column access we are removing, so we have to remove
+								//	that activate as well (check i>0 because if i==0 then theres nothing before it)
+								if (i>0 && queue[i-1]->busPacketType == ACTIVATE)
+								{
+								//	rowAccessCounters[(*busPacket)->rank][(*busPacket)->bank]++;
+									// i is being returned, but i-1 is being thrown away, so must delete it here 
+									delete (queue[i-1]);
+
+									// remove both i-1 (the activate) and i (we've saved the pointer in *busPacket)
+									queue.erase(queue.begin()+i-1,queue.begin()+i+1);
+								}
+								else // there's no activate before this packet
+								{
+									//or just remove the one bus packet
+									queue.erase(queue.begin()+i);
+								}
+
+								foundIssuable = true;
+								break;
+							}
+							else
+							{
+								continue;
+							}
+  
+  						}
 
 #endif
 						if (isIssuable(packet))
@@ -538,12 +589,8 @@ bool CommandQueue::pop(BusPacket **busPacket)
 							{
 								sendingPRE = true;
 								rowAccessCounters[nextRankPRE][nextBankPRE] = 0;
-								*busPacket = new BusPacket(PRECHARGE, 0, 0, 0, nextRankPRE, nextBankPRE, 0, dramsim_log);
-#ifdef ROWBUFFERBUFER
-						//		bankCaches[nextRankPRE][nextBankPRE].openRowAddress = bankStates[nextRankPRE][nextBankPRE].openRowAddress;
-								//TODO: state change and other operates if
-								//replacement occurs
-#endif
+								//*busPacket = new BusPacket(PRECHARGE, 0, 0, 0, nextRankPRE, nextBankPRE, 0, dramsim_log);
+								*busPacket = new BusPacket(PRECHARGE, 0, 0, bankStates[nextRankPRE][nextBankPRE].openRowAddress, nextRankPRE, nextBankPRE, 0, dramsim_log);
 								break;
 							}
 						}
@@ -647,6 +694,37 @@ vector<BusPacket *> &CommandQueue::getCommandQueue(unsigned rank, unsigned bank)
 	}
 
 }
+
+#ifdef ROWBUFFERBUFFER
+//checks if busPacket is allowed to be issued to RBR
+bool CommandQueue::isIssuableRBR(BusPacket *busPacket)
+{
+	switch (busPacket->busPacketType)
+	{
+	case ACTIVATE:
+		return false;
+		break;
+	case READ_B:
+	case READ:
+		if (bankCaches[busPacket->rank][busPacket->bank].currentBufferState == Valid &&
+		        currentClockCycle >= bankStates[busPacket->rank][busPacket->bank].nextRead &&
+		        busPacket->row == bankStates[busPacket->rank][busPacket->bank].openRowAddress)
+		{
+			return true;
+		}
+		else
+		{
+			return false;
+		}
+		break;
+	default:
+		ERROR("== Error - Trying to issue a crazy bus packet type : ");
+		busPacket->print();
+		exit(0);
+	}
+	return false;
+}
+#endif
 
 //checks if busPacket is allowed to be issued
 bool CommandQueue::isIssuable(BusPacket *busPacket)

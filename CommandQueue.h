@@ -68,6 +68,7 @@ public:
 	//functions
 #ifdef ROWBUFFERBUFFER
 	CommandQueue(vector< vector<BankState> > &states, vector< vector<RowBufferBuffer > > &caches, ostream &dramsim_log);
+	bool isIssuableRBR(BusPacket *busPacket);
 #else
 	CommandQueue(vector< vector<BankState> > &states, ostream &dramsim_log);
 #endif

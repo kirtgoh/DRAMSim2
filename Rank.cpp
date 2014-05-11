@@ -44,6 +44,9 @@ Rank::Rank(ostream &dramsim_log_) :
 	refreshWaiting(false),
 	readReturnCountdown(0),
 	banks(NUM_BANKS, Bank(dramsim_log_)),
+#ifdef ROWBUFFERBUFFER
+	cacheStates(NUM_BANKS, RowBufferBuffer(dramsim_log_)),
+#endif
 	bankStates(NUM_BANKS, BankState(dramsim_log_))
 
 {
@@ -52,6 +55,10 @@ Rank::Rank(ostream &dramsim_log_) :
 	outgoingDataPacket = NULL;
 	dataCyclesLeft = 0;
 	currentClockCycle = 0;
+#ifdef ROWBUFFERBUFFER
+	for (size_t i = 0; i < NUM_BANKS; i++)
+		cacheStates[i].currentBufferState = Valid;
+#endif
 
 #ifndef NO_STORAGE
 #endif
@@ -93,6 +100,42 @@ void Rank::receiveFromBus(BusPacket *packet)
 
 	switch (packet->busPacketType)
 	{
+#ifdef ROWBUFFERBUFFER
+	case READ_B:
+		//make sure a R2B read is allowed
+		if (cacheStates[packet->bank].currentBufferState != Valid ||
+				currentClockCycle < cacheStates[packet->bank].nextRead ||
+			packet->row != cacheStates[packet->bank].openRowAddress)
+		{
+			packet->print();
+		if (cacheStates[packet->bank].currentBufferState != Valid)
+			ERROR("== Error not Valid");
+
+		if (currentClockCycle < cacheStates[packet->bank].nextRead)
+			ERROR("== Error time is not arived");
+
+		if (packet->row != cacheStates[packet->bank].openRowAddress)
+			ERROR("== Error not the openRow");
+
+			ERROR("== Error - Rank " << id << " received a READ when not allowed");
+			exit(0);
+		}
+
+		//update cacheState table
+		for (size_t i=0;i<NUM_BANKS;i++)
+		{
+			cacheStates[i].nextRead = max(cacheStates[i].nextRead, currentClockCycle + BL/2);
+		}
+
+#ifndef NO_STORAGE
+		banks[packet->bank].read(packet);
+#else
+		packet->busPacketType = DATA;
+#endif
+		readReturnPacket.push_back(packet);
+		readReturnCountdown.push_back(RL);
+		break;
+#endif
 	case READ:
 		//make sure a read is allowed
 		if (bankStates[packet->bank].currentBankState != RowActive ||
@@ -250,6 +293,15 @@ void Rank::receiveFromBus(BusPacket *packet)
 		bankStates[packet->bank].currentBankState = Idle;
 		bankStates[packet->bank].nextActivate = max(bankStates[packet->bank].nextActivate, currentClockCycle + tRP);
 		delete(packet); 
+
+#ifdef ROWBUFFERBUFFER 
+		cacheStates[packet->bank].openRowAddress = packet->row;
+		cacheStates[packet->bank].currentBufferState = Valid;
+		cacheStates[packet->bank].nextRead = currentClockCycle;
+		//TODO: state change and other operates if
+		//replacement occurs
+#endif
+
 		break;
 	case REFRESH:
 		refreshWaiting = false;
@@ -381,5 +433,9 @@ void Rank::powerUp()
 		}
 		bankStates[i].nextActivate = currentClockCycle + tXP;
 		bankStates[i].currentBankState = Idle;
+#ifdef ROWBUFFERBUFFER
+		cacheStates[i].nextRead = currentClockCycle;
+#endif
+
 	}
 }

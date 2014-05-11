@@ -30,7 +30,7 @@ public:
 	RowBufferBuffer(ostream &dramsim_log_);
 
 //	unsigned access();
-	unsigned isHit(BusPacket *packet);
+	bool isHit(BusPacket *packet);
 
 
 };

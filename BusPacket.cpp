@@ -135,6 +135,11 @@ void BusPacket::print()
 			printData();
 			PRINT("");
 			break;
+#ifdef ROWBUFFERBUFFER
+		case READ_B:
+			PRINT("BP [READ_B] pa[0x"<<hex<<physicalAddress<<dec<<"] r["<<rank<<"] b["<<bank<<"] row["<<row<<"] col["<<column<<"]");
+			break;
+#endif
 		default:
 			ERROR("Trying to print unknown kind of bus packet");
 			exit(-1);

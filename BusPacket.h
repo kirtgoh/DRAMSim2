@@ -43,12 +43,16 @@ enum BusPacketType
 {
 	READ,
 	READ_P,
+#ifdef ROWBUFFERBUFFER
+	READ_B,
+#endif
 	WRITE,
 	WRITE_P,
 	ACTIVATE,
 	PRECHARGE,
 	REFRESH,
 	DATA
+
 };
 
 class BusPacket

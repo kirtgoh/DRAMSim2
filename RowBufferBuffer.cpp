@@ -24,10 +24,10 @@ RowBufferBuffer::RowBufferBuffer(ostream &dramsim_log_):
  * 
  * }
  */
-unsigned RowBufferBuffer::isHit(BusPacket *packet)
+bool RowBufferBuffer::isHit(BusPacket *packet)
 {
-	if (packet->row == openRowAddress)
-		return 1;	
+	if (packet->row == openRowAddress && currentBufferState == Valid && packet->busPacketType == READ)
+		return true;	
 	else
-		return 0;
+		return false;
 }

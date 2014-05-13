@@ -183,7 +183,7 @@ enum SchedulingPolicy
 };
 
 // Only used in RowBufferCache
-enum CachePolicy	// cache replacement policy 
+enum BufferPolicy	// cache replacement policy 
 {
 	LRU,		// replace least recently used block (perfect LRU)
 	RANDOM,		// replace a random block
@@ -204,7 +204,7 @@ extern AddressMappingScheme addressMappingScheme;
 extern QueuingStructure queuingStructure;
 
 #ifdef ROWBUFFERCACHE
-extern CachePolicy cachePolicy;
+extern BufferPolicy bufferPolicy;
 #endif
 //
 //FUNCTIONS

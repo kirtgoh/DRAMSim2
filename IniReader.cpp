@@ -138,7 +138,7 @@ AddressMappingScheme addressMappingScheme;
 QueuingStructure queuingStructure;
 
 #ifdef ROWBUFFERCACHE
-CachePolicy cachePolicy;
+BufferPolicy bufferPolicy;
 #endif
 
 
@@ -558,7 +558,7 @@ void IniReader::InitEnumsFromStrings()
 #ifdef ROWBUFFERCACHE
 	if (CACHE_REPLACE_POLICY == "lru")
 	{
-		cachePolicy = LRU;
+		bufferPolicy = LRU;
 		if (DEBUG_INI_READER)
 		{
 			DEBUG("CACHE POLICY: lru");

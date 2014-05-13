@@ -12,11 +12,11 @@ using namespace DRAMSim;
 #define CACHE_SET(addr)	(((addr) >> shift_set) & mask_set)
 
 //=====================================================================================
-// Class CacheSet
+// Class BufferSet
 //-------------------------------------------------------------------------------------
 // insert - insert a pointed cacheline into head of way list
 //
-void CacheSet::insert(CacheLine *blk)
+void BufferSet::insert(Buffer *blk)
 {
 	blk->way_next = way_head;
 	blk->way_prev = NULL;
@@ -37,7 +37,7 @@ void CacheSet::insert(CacheLine *blk)
 //-------------------------------------------------------------------------------------
 // update_way_list - update pointed cacheline to location of way list, according cache policy
 //
-void CacheSet::update_way_list(CacheLine *blk, CachePolicy policy)
+void BufferSet::update_way_list(Buffer *blk, BufferPolicy policy)
 {
 	switch(policy) {
 		case FIFO:
@@ -90,7 +90,7 @@ void CacheSet::update_way_list(CacheLine *blk, CachePolicy policy)
 RowBufferCache::RowBufferCache (unsigned kilosOfCache,
 								unsigned ways,
 								unsigned linelen,
-								enum CachePolicy repl):
+								enum BufferPolicy repl):
 	// initialize cache stats
 	hits(0), misses(0), replacements(0), writebacks(0)	
 {
@@ -117,7 +117,7 @@ RowBufferCache::RowBufferCache (unsigned kilosOfCache,
 	lenOfLine = linelen;
 	numOfWays = ways;
 
-	// cache size is SETS * WAYS * LINE_SIZE, so
+	// cache size is SETS * WAYS * BUFFER_SIZE, so
 	numOfSets = kilosOfCache * 1024 / (numOfWays * lenOfLine);
 
 	if (!isPowerOfTwo(numOfSets)) {
@@ -126,9 +126,9 @@ RowBufferCache::RowBufferCache (unsigned kilosOfCache,
 	}
 
 	// allocate the cache structure
-	Sets = vector< CacheSet *>(numOfSets);
+	Sets = vector< BufferSet *>(numOfSets);
 	for (size_t i = 0; i < numOfSets; i++) {
-			Sets[i] = new CacheSet(numOfWays);
+			Sets[i] = new BufferSet(numOfWays);
 	}
 	policy = repl;
 
@@ -145,7 +145,7 @@ RowBufferCache::RowBufferCache (unsigned kilosOfCache,
 //
 RowBufferCache::~RowBufferCache()
 {
-	Sets = vector< CacheSet *>(numOfSets);
+	Sets = vector< BufferSet *>(numOfSets);
 	for (size_t i = 0; i < numOfSets; i++) {
 			delete Sets[i]; 
 	}
@@ -155,16 +155,16 @@ RowBufferCache::~RowBufferCache()
 // handle_hit - handle READ/WRITE hit.
 //
 // @blk: point to the hit cacheline
-// @cmd: if WRITE, change cacheline state to LINE_MODIFIED
+// @cmd: if WRITE, change cacheline state to BUFFER_MODIFIED
 // @set: which sets hit happen
 //
-int RowBufferCache::handle_hit(CacheLine *blk, BusPacketType cmd, unsigned set)
+int RowBufferCache::handle_hit(Buffer *blk, BusPacketType cmd, unsigned set)
 {
 	hits++;
 
 	// update dirty status
 	if (cmd == WRITE)
-		blk->state |= LINE_MODIFIED;
+		blk->state |= BUFFER_MODIFIED;
 
 	// if LRU replacement and this is not the first element of list, reorder
 	if (blk->way_prev && policy == LRU)
@@ -181,7 +181,7 @@ int RowBufferCache::handle_hit(CacheLine *blk, BusPacketType cmd, unsigned set)
 //
 // @tag: tag address to access
 // @set: set address to access
-// @cmd: if WRITE, change cacheline state to LINE_MODIFIED
+// @cmd: if WRITE, change cacheline state to BUFFER_MODIFIED
 //
 int RowBufferCache::handle_miss(uint32_t tag, uint32_t set,  BusPacketType cmd)
 {
@@ -189,7 +189,7 @@ int RowBufferCache::handle_miss(uint32_t tag, uint32_t set,  BusPacketType cmd)
 
 	// select the appropriate block to replace, and re-link this entry to
 	// the appropriate place in the way list
-	CacheLine *repl = NULL;
+	Buffer *repl = NULL;
 
 	switch (policy)
 	{
@@ -205,22 +205,22 @@ int RowBufferCache::handle_miss(uint32_t tag, uint32_t set,  BusPacketType cmd)
 			ERROR("bogus replacement policy");
 	}
 
-	if (repl->state & LINE_VALID)
+	if (repl->state & BUFFER_VALID)
 	{
 		replacements++;
 
-		if (repl->state & LINE_MODIFIED)
+		if (repl->state & BUFFER_MODIFIED)
 		{
 		  // write back the cache block
 		  writebacks++;
 		}
 	}
-
-	repl->tag = tag;
-	repl->state = LINE_VALID;
+	//FIXME: just row ?
+	//repl->tag = tag;
+	repl->state = BUFFER_VALID;
 
 	if (cmd == WRITE)
-		repl->state |= LINE_MODIFIED;
+		repl->state |= BUFFER_MODIFIED;
 
 	return 0;
 }
@@ -230,24 +230,25 @@ int RowBufferCache::handle_miss(uint32_t tag, uint32_t set,  BusPacketType cmd)
 //
 unsigned RowBufferCache::access(BusPacketType cmdType, uint32_t addr)
 {
-	// decode address infomation
-	uint32_t tag = CACHE_TAG(addr);
-	uint32_t set = CACHE_SET(addr);
-
-	// current block used to detect
-	CacheLine *blk = NULL;		
-
-	// linear search the way list
-	for (blk = Sets[set]->way_head; blk; blk = blk->way_next)
-	{
-	  if (blk->tag == tag && (blk->state & LINE_VALID)) {
-		  handle_hit(blk, cmdType, set);
-		  return 1;
-	  }
-	}
-
-	// cache block not found
-	handle_miss(tag, set, cmdType);
+/* 	// decode address infomation
+ * 	uint32_t tag = CACHE_TAG(addr);
+ * 	uint32_t set = CACHE_SET(addr);
+ * 
+ * 	// current block used to detect
+ * 	Buffer *blk = NULL;		
+ * 
+ * 	// linear search the way list
+ * 	for (blk = Sets[set]->way_head; blk; blk = blk->way_next)
+ * 	{
+ * 	  if (blk->tag == tag && (blk->state & BUFFER_VALID)) {
+ * 		  handle_hit(blk, cmdType, set);
+ * 		  return 1;
+ * 	  }
+ * 	}
+ * 
+ * 	// cache block not found
+ * 	handle_miss(tag, set, cmdType);
+ */
 	
 	return 0;
 }

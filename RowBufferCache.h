@@ -19,58 +19,58 @@ namespace DRAMSim {
 //-------------------------------------------------------------------------------------
 // generic defines and data types
 //
-enum CacheState		// cache line state
+enum BufferState// cache line state
 {
-	LINE_INVALID = 0,
-	LINE_VALID,
-	LINE_MODIFIED,
+	BUFFER_INVALID = 0,
+	BUFFER_VALID,
+	BUFFER_MODIFIED,
 };
 
-typedef struct _CacheLine	// cache line (or block) definition
+typedef struct _Buffer	// cache line (or block) definition
 {
-	struct _CacheLine *way_next;
-	struct _CacheLine *way_prev;
+	struct _Buffer *way_next;
+	struct _Buffer *way_prev;
 
-	uint32_t tag;
+	uint32_t row;
 	unsigned state;
 
-} CacheLine;
+} Buffer;
 
 //-------------------------------------------------------------------------------------
-// Class CacheSet definition - one or more lines sharing the same set index
+// Class BufferSet definition - one or more segments sharing the same set index
 //
-class CacheSet
+class BufferSet
 {
 	public:
-		CacheSet(size_t n)
+		BufferSet(size_t n)
 			:way_head(NULL),way_tail(NULL),lenOfList(0)
 		{
-			CacheLine *p = NULL;
+			Buffer *p = NULL;
 			for (size_t i = 0; i < n; i++)
 			{
-				p = new CacheLine;
+				p = new Buffer;
 				insert(p);
 			}
 		}
 
-		CacheSet()
+		BufferSet()
 			:way_head(NULL),way_tail(NULL),lenOfList(0)
 		{}
 
-		~CacheSet() { clear(); }
+		~BufferSet() { clear(); }
 
 
 		int size() {
 			return lenOfList;
 		}
 
-		void insert(CacheLine *line);
-		void update_way_list(CacheLine *blk, CachePolicy policy);
+		void insert(Buffer *blk);
+		void update_way_list(Buffer *blk, BufferPolicy policy);
 
 		void clear()
 		{
-			CacheLine *prev;
-			for (CacheLine *p = way_tail; p; p = prev)
+			Buffer *prev;
+			for (Buffer *p = way_tail; p; p = prev)
 			{
 				prev = p->way_prev;
 				delete p;
@@ -78,8 +78,8 @@ class CacheSet
 			way_head = way_tail = NULL;
 		}
 
-		CacheLine *way_head;
-		CacheLine *way_tail;
+		Buffer *way_head;
+		Buffer *way_tail;
 	private:
 		size_t lenOfList;
 };
@@ -95,14 +95,14 @@ class RowBufferCache
 		RowBufferCache(unsigned kilosOfCache,
 				unsigned ways,
 				unsigned linelen,
-				CachePolicy repl);
+				BufferPolicy repl);
 
 		// deconstructor
 		~RowBufferCache();
 		
 		unsigned access(BusPacketType cmdType, uint32_t addr);
 
-		int handle_hit(CacheLine *blk, BusPacketType cmd, unsigned set);
+		int handle_hit(Buffer *blk, BusPacketType cmd, unsigned set);
 		int handle_miss(uint32_t tag, uint32_t set,  BusPacketType cmd);
 
 		// return Size of Cache in bytes
@@ -121,7 +121,7 @@ class RowBufferCache
 		int get_line_size() const {
 			return lenOfLine;
 		}
-		vector< CacheSet *> Sets;
+		vector< BufferSet *> Sets;
 
 		// parameters of this cache
 		unsigned lenOfLine;
@@ -137,7 +137,7 @@ class RowBufferCache
 
 
 		// FIFO, LRU or RANDOM
-		CachePolicy policy;
+		BufferPolicy policy;
 
 		// per-cache stats 
 		uint64_t hits;				// total number of hits

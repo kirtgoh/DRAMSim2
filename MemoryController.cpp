@@ -102,7 +102,7 @@ MemoryController::MemoryController(MemorySystem *parent, CSVWriter &csvOut_, ost
 #ifdef ROWBUFFERCACHE
 	rankCaches.reserve(NUM_RANKS);
 	for (size_t i=0; i < NUM_RANKS; i++)
-		rankCaches.push_back(RowBufferCache(NUM_BANKS * CACHE_STORAGE, CACHE_WAY_COUNT, CACHE_LINE_SIZE, cachePolicy));
+		rankCaches.push_back(RowBufferCache(NUM_BANKS * CACHE_STORAGE, CACHE_WAY_COUNT, CACHE_LINE_SIZE, bufferPolicy));
 	DEBUG("===== RowBufferCache enabled =====");
 //	DEBUG("CACHE_STORAGE : "<< rankCaches[0].get_size() /1024 << "KB | " << rankCaches[0].get_way_count() <<" Ways | "
 //		   	<< rankCaches[0].get_set_count()<<" Sets | "<<rankCaches[0].get_line_size()<<"B Cacheline per rank");

@@ -52,6 +52,9 @@ CommandQueue::CommandQueue(vector< vector<BankState> > &states,
 #endif
 		ostream &dramsim_log_) :
 		dramsim_log(dramsim_log_),
+#ifdef ROWBUFFERCACHE
+		rankCaches(caches),
+#endif
 		bankStates(states),
 #ifdef ROWBUFFERBUFFER
 		bankCaches(caches),

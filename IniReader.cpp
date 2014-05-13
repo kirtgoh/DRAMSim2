@@ -49,6 +49,12 @@ unsigned NUM_ROWS;
 unsigned NUM_COLS;
 unsigned DEVICE_WIDTH;
 
+#ifdef ROWBUFFERCACHE
+uint64_t CACHE_STORAGE;
+unsigned CACHE_WAY_COUNT;
+unsigned CACHE_LINE_SIZE;
+#endif
+
 unsigned REFRESH_PERIOD;
 float tCK;
 float Vdd;
@@ -106,6 +112,10 @@ string SCHEDULING_POLICY;
 string ADDRESS_MAPPING_SCHEME;
 string QUEUING_STRUCTURE;
 
+#ifdef ROWBUFFERCACHE
+string CACHE_REPLACE_POLICY;
+#endif
+
 bool DEBUG_TRANS_Q;
 bool DEBUG_CMD_Q;
 bool DEBUG_ADDR_MAP;
@@ -126,6 +136,10 @@ RowBufferPolicy rowBufferPolicy;
 SchedulingPolicy schedulingPolicy;
 AddressMappingScheme addressMappingScheme;
 QueuingStructure queuingStructure;
+
+#ifdef ROWBUFFERCACHE
+BufferPolicy bufferPolicy;
+#endif
 
 
 //Map the string names to the variables they set
@@ -178,6 +192,13 @@ static ConfigMap configMap[] =
 	//Memory Controller related parameters
 	DEFINE_UINT_PARAM(TRANS_QUEUE_DEPTH,SYS_PARAM),
 	DEFINE_UINT_PARAM(CMD_QUEUE_DEPTH,SYS_PARAM),
+
+#ifdef ROWBUFFERCACHE
+	DEFINE_UINT_PARAM(CACHE_STORAGE,SYS_PARAM),
+	DEFINE_UINT_PARAM(CACHE_WAY_COUNT,SYS_PARAM),
+	DEFINE_UINT_PARAM(CACHE_LINE_SIZE,SYS_PARAM),
+	DEFINE_STRING_PARAM(CACHE_REPLACE_POLICY,SYS_PARAM),
+#endif
 
 	DEFINE_UINT_PARAM(EPOCH_LENGTH,SYS_PARAM),
 	//Power
@@ -534,6 +555,16 @@ void IniReader::InitEnumsFromStrings()
 		cout << "WARNING: unknown address mapping scheme '"<<ADDRESS_MAPPING_SCHEME<<"'; valid values are 'scheme1'...'scheme7'. Defaulting to scheme1"<<endl;
 		addressMappingScheme = Scheme1;
 	}
+#ifdef ROWBUFFERCACHE
+	if (CACHE_REPLACE_POLICY == "lru")
+	{
+		bufferPolicy = LRU;
+		if (DEBUG_INI_READER)
+		{
+			DEBUG("CACHE POLICY: lru");
+		}
+	}
+#endif
 
 	if (ROW_BUFFER_POLICY == "open_page")
 	{

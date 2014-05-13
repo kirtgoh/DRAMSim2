@@ -79,6 +79,12 @@ extern unsigned NUM_ROWS;
 extern unsigned NUM_COLS;
 extern unsigned DEVICE_WIDTH;
 
+#ifdef ROWBUFFERCACHE
+extern uint64_t CACHE_STORAGE;
+extern unsigned CACHE_WAY_COUNT;
+extern unsigned CACHE_LINE_SIZE;
+#endif
+
 //in nanoseconds
 extern unsigned REFRESH_PERIOD;
 extern float tCK;
@@ -133,6 +139,10 @@ extern std::string SCHEDULING_POLICY;
 extern std::string ADDRESS_MAPPING_SCHEME;
 extern std::string QUEUING_STRUCTURE;
 
+#ifdef ROWBUFFERCACHE
+extern std::string CACHE_REPLACE_POLICY;
+#endif
+
 enum TraceType
 {
 	k6,
@@ -172,6 +182,13 @@ enum SchedulingPolicy
 	BankThenRankRoundRobin
 };
 
+// Only used in RowBufferCache
+enum BufferPolicy	// cache replacement policy 
+{
+	LRU,		// replace least recently used block (perfect LRU)
+	RANDOM,		// replace a random block
+	FIFO		// replace the oldest block in the set
+};
 
 // set by IniReader.cpp
 
@@ -185,6 +202,10 @@ extern RowBufferPolicy rowBufferPolicy;
 extern SchedulingPolicy schedulingPolicy;
 extern AddressMappingScheme addressMappingScheme;
 extern QueuingStructure queuingStructure;
+
+#ifdef ROWBUFFERCACHE
+extern BufferPolicy bufferPolicy;
+#endif
 //
 //FUNCTIONS
 //

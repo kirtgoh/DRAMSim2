@@ -84,6 +84,9 @@ public:
 private:
 	ostream &dramsim_log;
 	vector< vector <BankState> > bankStates;
+#ifdef ROWBUFFERCACHE
+	vector <RowBufferCache> rankCaches;
+#endif
 	//functions
 	void insertHistogram(unsigned latencyValue, unsigned rank, unsigned bank);
 

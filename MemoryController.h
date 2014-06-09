@@ -47,9 +47,11 @@
 #include "CSVWriter.h"
 #include "TransactionQueue.h"
 #include <map>
+#include <iomanip> //used to hex uppercase output
 
-#ifdef ROWBUFFERBUFFER
-#include "RowBufferBuffer.h"
+#ifdef VICTIMBUFFER
+#include "Buffer.h"
+#define NAME(value) #value
 #endif
 
 using namespace std;
@@ -78,14 +80,11 @@ public:
 	//fields
 	//vector<Transaction *> transactionQueue;
 	TransactionQueue transactionQueue;
-#ifdef ROWBUFFERBUFFER
-	vector < vector<RowBufferBuffer> > bankCaches;
-#endif
 private:
 	ostream &dramsim_log;
 	vector< vector <BankState> > bankStates;
-#ifdef ROWBUFFERCACHE
-	vector <RowBufferCache> rankCaches;
+#ifdef VICTIMBUFFER
+	vector < vector<Buffer> > bankBuffers;
 #endif
 	//functions
 	void insertHistogram(unsigned latencyValue, unsigned rank, unsigned bank);
@@ -122,6 +121,10 @@ private:
 	vector<uint64_t> grandTotalBankAccesses; 
 	vector<uint64_t> totalReadsPerBank;
 	vector<uint64_t> totalWritesPerBank;
+
+	// 
+	uint64_t grandReadTrans;
+	uint64_t grandReturnReadTrans;
 
 	vector<uint64_t> totalReadsPerRank;
 	vector<uint64_t> totalWritesPerRank;

@@ -44,6 +44,7 @@ using namespace std;
 
 
 ofstream cmd_verify_out; //used in Rank.cpp and MemoryController.cpp if VERIFICATION_OUTPUT is set
+ofstream trans_verify_out;
 
 unsigned NUM_DEVICES;
 unsigned NUM_RANKS;
@@ -166,6 +167,9 @@ MemorySystem::~MemorySystem()
 	{
 		cmd_verify_out.flush();
 		cmd_verify_out.close();
+		// buffer = 1 or not , both should extract trans info
+		trans_verify_out.flush();
+		trans_verify_out.close();
 	}
 }
 

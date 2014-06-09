@@ -63,9 +63,9 @@ using namespace DRAMSim;
 MemoryController::MemoryController(MemorySystem *parent, CSVWriter &csvOut_, ostream &dramsim_log_) :
 		dramsim_log(dramsim_log_),
 		bankStates(NUM_RANKS, vector<BankState>(NUM_BANKS, dramsim_log)),
-#ifdef ROWBUFFERBUFFER
-		bankCaches(NUM_RANKS, vector<RowBufferBuffer>(NUM_BANKS, dramsim_log)),
-		commandQueue(bankStates, bankCaches, dramsim_log_),
+#ifdef VICTIMBUFFER
+		bankBuffers(NUM_RANKS, vector<Buffer>(NUM_BANKS, dramsim_log)),
+		commandQueue(bankStates, bankBuffers, dramsim_log_),
 #else
 		commandQueue(bankStates, dramsim_log_),
 #endif
@@ -100,14 +100,9 @@ MemoryController::MemoryController(MemorySystem *parent, CSVWriter &csvOut_, ost
 	totalReadsPerRank = vector<uint64_t>(NUM_RANKS,0);
 	totalWritesPerRank = vector<uint64_t>(NUM_RANKS,0);
 
-#ifdef ROWBUFFERCACHE
-	rankCaches.reserve(NUM_RANKS);
-	for (size_t i=0; i < NUM_RANKS; i++)
-		rankCaches.push_back(RowBufferCache(NUM_BANKS * CACHE_STORAGE, CACHE_WAY_COUNT, CACHE_LINE_SIZE, bufferPolicy));
-	DEBUG("===== RowBufferCache enabled =====");
-//	DEBUG("CACHE_STORAGE : "<< rankCaches[0].get_size() /1024 << "KB | " << rankCaches[0].get_way_count() <<" Ways | "
-//		   	<< rankCaches[0].get_set_count()<<" Sets | "<<rankCaches[0].get_line_size()<<"B Cacheline per rank");
-#endif
+	//
+	grandReadTrans = 0;
+	grandReturnReadTrans = 0;
 
 	writeDataCountdown.reserve(NUM_RANKS);
 	writeDataToSend.reserve(NUM_RANKS);
@@ -126,11 +121,26 @@ MemoryController::MemoryController(MemorySystem *parent, CSVWriter &csvOut_, ost
 	{
 		refreshCountdown.push_back((int)((REFRESH_PERIOD/tCK)/NUM_RANKS)*(i+1));
 	}
+
+#ifdef VICTIMBUFFER
+//	bankBuffers.reserve(NUM_RANKS);
+	for (size_t i=0; i<NUM_RANKS; i++)
+		for (size_t j=0; j<NUM_BANKS; j++)
+	{
+		bankBuffers[i][j].init();
+	}
+
+
+#endif
 }
 
 //get a bus packet from either data or cmd bus
 void MemoryController::receiveFromBus(BusPacket *bpacket)
 {
+	if (VERIFICATION_OUTPUT)
+	{
+		bpacket->print(currentClockCycle,false);
+	}
 	if (bpacket->busPacketType != DATA)
 	{
 		ERROR("== Error - Memory Controller received a non-DATA bus packet from rank");
@@ -144,6 +154,8 @@ void MemoryController::receiveFromBus(BusPacket *bpacket)
 		bpacket->print();
 	}
 
+	//
+	grandReturnReadTrans++;
 	//add to return read data queue
 	returnTransaction.push_back(new Transaction(RETURN_DATA, bpacket->physicalAddress, bpacket->data));
 	totalReadsPerBank[SEQUENTIAL(bpacket->rank,bpacket->bank)]++;
@@ -316,6 +328,14 @@ void MemoryController::update()
 		//for readability's sake
 		unsigned rank = poppedBusPacket->rank;
 		unsigned bank = poppedBusPacket->bank;
+#ifdef VICTIMBUFFER
+		// cuz precharege bus packet does not contain column info, add here 
+		if (poppedBusPacket->busPacketType == READ || 
+				poppedBusPacket->busPacketType == WRITE) {
+			bankStates[rank][bank].lastRow = poppedBusPacket->row;
+			bankStates[rank][bank].lastCol = poppedBusPacket->column;
+		}
+#endif
 		switch (poppedBusPacket->busPacketType)
 		{
 			case READ_P:
@@ -355,11 +375,17 @@ void MemoryController::update()
 								bankStates[i][j].nextRead = max(currentClockCycle + BL/2 + tRTRS, bankStates[i][j].nextRead);
 								bankStates[i][j].nextWrite = max(currentClockCycle + READ_TO_WRITE_DELAY,
 										bankStates[i][j].nextWrite);
+#ifdef VICTIMBUFFER
+								bankBuffers[i][j].nextRead = max(currentClockCycle + BL/2 + tRTRS, bankBuffers[i][j].nextRead);
+#endif
 							}
 						}
 						else
 						{
 							bankStates[i][j].nextRead = max(currentClockCycle + max(tCCD, BL/2), bankStates[i][j].nextRead);
+#ifdef VICTIMBUFFER
+							bankBuffers[i][j].nextRead = max(currentClockCycle + max(tCCD, BL/2), bankBuffers[i][j].nextRead);
+#endif
 							bankStates[i][j].nextWrite = max(currentClockCycle + READ_TO_WRITE_DELAY,
 									bankStates[i][j].nextWrite);
 						}
@@ -466,11 +492,23 @@ void MemoryController::update()
 				bankStates[rank][bank].stateChangeCountdown = tRP;
 				bankStates[rank][bank].nextActivate = max(currentClockCycle + tRP, bankStates[rank][bank].nextActivate);
 
-#ifdef ROWBUFFERBUFFER
-				bankCaches[rank][bank].openRowAddress = poppedBusPacket->row;
-				bankCaches[rank][bank].currentBufferState = Valid;
+#ifdef VICTIMBUFFER
+				// fill or replace victim buffer
+				if (poppedBusPacket->row != bankStates[rank][bank].lastRow) {
+				//	ERROR("Last Bank Row access is different with Precharging Row!\n");
+					break;
+				}
+
+				poppedBusPacket->row = bankStates[rank][bank].lastRow;
+				poppedBusPacket->column = bankStates[rank][bank].lastCol;
+
+				bankBuffers[rank][bank].handle_pre(poppedBusPacket);
+
 				// FIXME: initial here ?
-				bankCaches[rank][bank].nextRead = max(currentClockCycle + BL/2, bankCaches[rank][bank].nextRead);
+				bankBuffers[rank][bank].nextRead = max(currentClockCycle + BL/2, bankBuffers[rank][bank].nextRead);
+				bankBuffers[rank][bank].nextRead = max(bankStates[rank][bank].nextRead, bankBuffers[rank][bank].nextRead);
+
+				bankBuffers[rank][bank].nextWrite= max(currentClockCycle + BL/2, bankBuffers[rank][bank].nextWrite);
 #endif
 
 				break;
@@ -491,7 +529,7 @@ void MemoryController::update()
 				}
 
 				break;
-#ifdef ROWBUFFERBUFFER
+#ifdef VICTIMBUFFER
 			case READ_B:
 				for (size_t i=0;i<NUM_RANKS;i++)
 				{
@@ -500,14 +538,43 @@ void MemoryController::update()
 						if (i!=poppedBusPacket->rank)
 						{
 							//check to make sure it is active before trying to set (save's time?)
-							if (bankCaches[i][j].currentBufferState == Valid)
+							//if (bankBuffers[i][j].state == BUFFER_VALID)
 							{
-								bankCaches[i][j].nextRead = max(currentClockCycle + BL/2 + tRTRS, bankCaches[i][j].nextRead);
+								bankBuffers[i][j].nextRead = max(currentClockCycle + BL/2 + tRTRS, bankBuffers[i][j].nextRead);
+								// avoid data bus collapse
+								bankStates[i][j].nextRead = max(currentClockCycle + BL/2, bankStates[i][j].nextRead);
+
+								bankBuffers[i][j].nextWrite = max(currentClockCycle + BL/2 + tRTRS, bankBuffers[i][j].nextWrite);
 							}
 						}
 						else
 						{
-							bankStates[i][j].nextRead = max(currentClockCycle + BL/2, bankStates[i][j].nextRead);
+							bankBuffers[i][j].nextRead = max(currentClockCycle + BL/2, bankBuffers[i][j].nextRead);
+							bankStates[i][j].nextRead = max(currentClockCycle +BL/2, bankStates[i][j].nextRead);
+
+							bankBuffers[i][j].nextWrite = max(currentClockCycle + BL/2, bankBuffers[i][j].nextWrite);
+						}
+					}
+				}
+				break;
+			case WRITE_B:
+				for (size_t i=0;i<NUM_RANKS;i++)
+				{
+					for (size_t j=0;j<NUM_BANKS;j++)
+					{
+						if (i!=poppedBusPacket->rank)
+						{
+							//check to make sure it is active before trying to set (save's time?)
+							//if (bankBuffers[i][j].state == BUFFER_VALID)
+							{
+								bankBuffers[i][j].nextWrite = max(currentClockCycle + BL/2 + tRTRS, bankBuffers[i][j].nextWrite);
+								bankBuffers[i][j].nextRead = max(currentClockCycle + BL/2 + tRTRS, bankBuffers[i][j].nextRead);
+							}
+						}
+						else
+						{
+							bankBuffers[i][j].nextWrite = max(currentClockCycle + BL/2, bankBuffers[i][j].nextWrite);
+							bankBuffers[i][j].nextRead = max(currentClockCycle + BL/2, bankBuffers[i][j].nextRead);
 						}
 					}
 				}
@@ -835,10 +902,24 @@ bool MemoryController::WillAcceptTransaction()
 //allows outside source to make request of memory system
 bool MemoryController::addTransaction(Transaction *trans)
 {
+	// for extract trans info
+	const char* TransTypeNames[] = 
+	{
+		"READ",
+		"WRITE",
+		"DATA"
+	};
 	if (WillAcceptTransaction())
 	{
 		trans->timeAdded = currentClockCycle;
 		transactionQueue.insertTrans(trans);
+		// 
+		trans_verify_out <<"0x"<<hex<<setiosflags(ios::uppercase)<< trans->address <<" " << TransTypeNames[trans->transactionType] <<"  " <<dec<< currentClockCycle <<endl;
+
+		//
+		if (trans->transactionType == DATA_READ)
+			grandReadTrans++;
+
 		return true;
 	}
 	else 
@@ -1010,6 +1091,9 @@ void MemoryController::printStats(bool finalStats)
 		{
 			csvOut.getOutputStream() << "RBHR ="<< (float) grandHitTrans / grandPopTrans<<endl;
 		}
+		PRINT( " --- Grand Reads Checkout");
+		PRINT( "income reads: "<<grandReadTrans);
+		PRINT( "return reads: "<<grandReturnReadTrans);
 
 	}
 

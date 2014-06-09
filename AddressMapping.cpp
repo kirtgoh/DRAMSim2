@@ -308,10 +308,10 @@ void addressMapping(uint64_t physicalAddress, unsigned &newTransactionChan, unsi
 		unsigned col6;
 		unsigned col1;
 		unsigned col_remain;
-		unsigned bit16;
+	//	unsigned bit16;
 		
 		tempA = physicalAddress;
-		bit16 = (physicalAddress & 0x400) >> 10;
+	//	bit16 = (physicalAddress & 0x400) >> 10;
 		physicalAddress = physicalAddress >> channelBitWidth;
 		tempB = physicalAddress << channelBitWidth;
 		// FIXME: when NUM_CHANS = 1, chan > 0 occurs

@@ -385,7 +385,8 @@ int main(int argc, char **argv)
 	
 	IniReader::OverrideMap *paramOverrides = NULL; 
 
-	unsigned numCycles=10000;
+	//unsigned numCycles=100000;
+	unsigned numCycles=4580000;
 	//getopt stuff
 	while (1)
 	{

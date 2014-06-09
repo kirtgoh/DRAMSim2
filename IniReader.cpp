@@ -49,11 +49,9 @@ unsigned NUM_ROWS;
 unsigned NUM_COLS;
 unsigned DEVICE_WIDTH;
 
-#ifdef ROWBUFFERCACHE
-uint64_t CACHE_STORAGE;
-unsigned CACHE_WAY_COUNT;
-unsigned CACHE_LINE_SIZE;
-#endif
+uint64_t BUFFER_STORAGE;
+unsigned BUFFER_WAY_COUNT;
+unsigned BUFFER_BLOCK_SIZE;
 
 unsigned REFRESH_PERIOD;
 float tCK;
@@ -112,8 +110,8 @@ string SCHEDULING_POLICY;
 string ADDRESS_MAPPING_SCHEME;
 string QUEUING_STRUCTURE;
 
-#ifdef ROWBUFFERCACHE
-string CACHE_REPLACE_POLICY;
+#ifdef VICTIMBUFFER
+string BUFFER_REPLACE_POLICY;
 #endif
 
 bool DEBUG_TRANS_Q;
@@ -137,9 +135,7 @@ SchedulingPolicy schedulingPolicy;
 AddressMappingScheme addressMappingScheme;
 QueuingStructure queuingStructure;
 
-#ifdef ROWBUFFERCACHE
 BufferPolicy bufferPolicy;
-#endif
 
 
 //Map the string names to the variables they set
@@ -193,11 +189,11 @@ static ConfigMap configMap[] =
 	DEFINE_UINT_PARAM(TRANS_QUEUE_DEPTH,SYS_PARAM),
 	DEFINE_UINT_PARAM(CMD_QUEUE_DEPTH,SYS_PARAM),
 
-#ifdef ROWBUFFERCACHE
-	DEFINE_UINT_PARAM(CACHE_STORAGE,SYS_PARAM),
-	DEFINE_UINT_PARAM(CACHE_WAY_COUNT,SYS_PARAM),
-	DEFINE_UINT_PARAM(CACHE_LINE_SIZE,SYS_PARAM),
-	DEFINE_STRING_PARAM(CACHE_REPLACE_POLICY,SYS_PARAM),
+#ifdef VICTIMBUFFER
+	DEFINE_UINT_PARAM(BUFFER_STORAGE,SYS_PARAM),
+	DEFINE_UINT_PARAM(BUFFER_WAY_COUNT,SYS_PARAM),
+	DEFINE_UINT_PARAM(BUFFER_BLOCK_SIZE,SYS_PARAM),
+	DEFINE_STRING_PARAM(BUFFER_REPLACE_POLICY,SYS_PARAM),
 #endif
 
 	DEFINE_UINT_PARAM(EPOCH_LENGTH,SYS_PARAM),
@@ -555,13 +551,13 @@ void IniReader::InitEnumsFromStrings()
 		cout << "WARNING: unknown address mapping scheme '"<<ADDRESS_MAPPING_SCHEME<<"'; valid values are 'scheme1'...'scheme7'. Defaulting to scheme1"<<endl;
 		addressMappingScheme = Scheme1;
 	}
-#ifdef ROWBUFFERCACHE
-	if (CACHE_REPLACE_POLICY == "lru")
+#ifdef VICTIMBUFFER
+	if (BUFFER_REPLACE_POLICY == "lru")
 	{
 		bufferPolicy = LRU;
 		if (DEBUG_INI_READER)
 		{
-			DEBUG("CACHE POLICY: lru");
+			DEBUG("BUFFER POLICY: lru");
 		}
 	}
 #endif

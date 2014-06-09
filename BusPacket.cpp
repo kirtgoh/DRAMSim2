@@ -65,18 +65,30 @@ void BusPacket::print(uint64_t currentClockCycle, bool dataStart)
 		return;
 	}
 
+	if (dataStart)
+	{
+		cmd_verify_out << currentClockCycle << ": error! data bus collapse!"<<endl;
+	}
 	if (VERIFICATION_OUTPUT)
 	{
 		switch (busPacketType)
 		{
 		case READ:
-			cmd_verify_out << currentClockCycle << ": read ("<<rank<<","<<bank<<","<<column<<",0);"<<endl;
+			cmd_verify_out << currentClockCycle << ": read (0x"<<hex<<physicalAddress<<dec<<","<<rank<<","<<bank<<","<<row<<","<<column<<",0);"<<endl;
 			break;
 		case READ_P:
 			cmd_verify_out << currentClockCycle << ": read ("<<rank<<","<<bank<<","<<column<<",1);"<<endl;
 			break;
+#ifdef VICTIMBUFFER
+		case READ_B:
+			cmd_verify_out << currentClockCycle << ": read (0x"<<hex<<physicalAddress<<dec<<","<<rank<<","<<bank<<","<<row<<","<<column<<",2);"<<endl;
+			break;
+		case WRITE_B:
+			cmd_verify_out << currentClockCycle << ": write ("<<rank<<","<<bank<<","<<column<<",2, 0, 'h0);"<<endl;
+			break;
+#endif
 		case WRITE:
-			cmd_verify_out << currentClockCycle << ": write ("<<rank<<","<<bank<<","<<column<<",0 , 0, 'h0);"<<endl;
+			cmd_verify_out << currentClockCycle << ": write (0x"<<hex<<physicalAddress<<dec<<","<<rank<<","<<bank<<","<<column<<",0 , 0, 'h0);"<<endl;
 			break;
 		case WRITE_P:
 			cmd_verify_out << currentClockCycle << ": write ("<<rank<<","<<bank<<","<<column<<",1, 0, 'h0);"<<endl;
@@ -92,6 +104,7 @@ void BusPacket::print(uint64_t currentClockCycle, bool dataStart)
 			break;
 		case DATA:
 			//TODO: data verification?
+			cmd_verify_out << currentClockCycle << ": date (0x"<<hex<<physicalAddress<<dec<<","<<rank<<","<<bank<<","<<row<<","<<column<<");"<<endl;
 			break;
 		default:
 			ERROR("Trying to print unknown kind of bus packet");
@@ -135,7 +148,7 @@ void BusPacket::print()
 			printData();
 			PRINT("");
 			break;
-#ifdef ROWBUFFERBUFFER
+#ifdef VICTIMBUFFER
 		case READ_B:
 			PRINT("BP [READ_B] pa[0x"<<hex<<physicalAddress<<dec<<"] r["<<rank<<"] b["<<bank<<"] row["<<row<<"] col["<<column<<"]");
 			break;

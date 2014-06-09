@@ -43,9 +43,8 @@ enum BusPacketType
 {
 	READ,
 	READ_P,
-#ifdef ROWBUFFERBUFFER
 	READ_B,
-#endif
+	WRITE_B,
 	WRITE,
 	WRITE_P,
 	ACTIVATE,

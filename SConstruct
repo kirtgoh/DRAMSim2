@@ -89,11 +89,11 @@ else:
 	env.Append(CXXFLAGS = ' -O3')
 	env['tests'] = False
 
-# RowBufferBuffer enable/disable
+# Buffer enable/disable
 buffer = ARGUMENTS.get('buffer',0)
 
 if int(buffer) == 1:
-	env.Append(CCFLAGS = '-DROWBUFFERBUFFER')
+	env.Append(CCFLAGS = '-DVICTIMBUFFER')
 
 # Include all the subdirectories into the CCFLAGS
 for dir in dirs:

@@ -56,6 +56,7 @@
 #define HISTOGRAM_BIN_SIZE 10
 
 extern std::ofstream cmd_verify_out; //used by BusPacket.cpp if VERIFICATION_OUTPUT is enabled
+extern std::ofstream trans_verify_out; //used by ?.cpp if VERIFICATION_OUTPUT is enabled
 //extern std::ofstream visDataOut;
 
 //TODO: namespace these to DRAMSim:: 
@@ -79,11 +80,9 @@ extern unsigned NUM_ROWS;
 extern unsigned NUM_COLS;
 extern unsigned DEVICE_WIDTH;
 
-#ifdef ROWBUFFERCACHE
-extern uint64_t CACHE_STORAGE;
-extern unsigned CACHE_WAY_COUNT;
-extern unsigned CACHE_LINE_SIZE;
-#endif
+extern uint64_t BUFFER_STORAGE;
+extern unsigned BUFFER_WAY_COUNT;
+extern unsigned BUFFER_BLOCK_SIZE;
 
 //in nanoseconds
 extern unsigned REFRESH_PERIOD;
@@ -139,8 +138,8 @@ extern std::string SCHEDULING_POLICY;
 extern std::string ADDRESS_MAPPING_SCHEME;
 extern std::string QUEUING_STRUCTURE;
 
-#ifdef ROWBUFFERCACHE
-extern std::string CACHE_REPLACE_POLICY;
+#ifdef VICTIMBUFFER
+extern std::string BUFFER_REPLACE_POLICY;
 #endif
 
 enum TraceType
@@ -203,9 +202,7 @@ extern SchedulingPolicy schedulingPolicy;
 extern AddressMappingScheme addressMappingScheme;
 extern QueuingStructure queuingStructure;
 
-#ifdef ROWBUFFERCACHE
 extern BufferPolicy bufferPolicy;
-#endif
 //
 //FUNCTIONS
 //

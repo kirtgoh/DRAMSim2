@@ -197,6 +197,15 @@ void MultiChannelMemorySystem::InitOutputFiles(string traceFilename)
 			ERROR("Cannot open "<< verify_filename);
 			abort(); 
 		}
+
+		string trans_verify_filename =  "mase_run_out";
+		trans_verify_filename += ".trc";
+		trans_verify_out.open(trans_verify_filename.c_str());
+		if (!trans_verify_out)
+		{
+			ERROR("Cannot open "<< trans_verify_filename);
+			abort(); 
+		}
 	}
 	// This sets up the vis file output along with the creating the result
 	// directory structure if it doesn't exist

@@ -44,8 +44,8 @@ Rank::Rank(ostream &dramsim_log_) :
 	refreshWaiting(false),
 	readReturnCountdown(0),
 	banks(NUM_BANKS, Bank(dramsim_log_)),
-#ifdef ROWBUFFERBUFFER
-	cacheStates(NUM_BANKS, RowBufferBuffer(dramsim_log_)),
+#ifdef VICTIMBUFFER
+	bankBuffers(NUM_BANKS, Buffer(dramsim_log_)),
 #endif
 	bankStates(NUM_BANKS, BankState(dramsim_log_))
 
@@ -55,10 +55,11 @@ Rank::Rank(ostream &dramsim_log_) :
 	outgoingDataPacket = NULL;
 	dataCyclesLeft = 0;
 	currentClockCycle = 0;
-#ifdef ROWBUFFERBUFFER
-	for (size_t i = 0; i < NUM_BANKS; i++)
-		cacheStates[i].currentBufferState = Valid;
+#ifdef VICTIMBUFFER
+		for (size_t j = 0; j < NUM_BANKS; j++)
+			bankBuffers[j].init();
 #endif
+
 
 #ifndef NO_STORAGE
 #endif
@@ -98,33 +99,51 @@ void Rank::receiveFromBus(BusPacket *packet)
 		packet->print(currentClockCycle,false);
 	}
 
+#ifdef VICTIMBUFFER
+	if (packet->busPacketType == READ ||
+			packet->busPacketType == WRITE) {
+		bankStates[packet->bank].lastRow = packet->row;
+		bankStates[packet->bank].lastCol = packet->column;
+	}
+#endif
+
 	switch (packet->busPacketType)
 	{
-#ifdef ROWBUFFERBUFFER
+#ifdef VICTIMBUFFER
 	case READ_B:
+		if (!bankBuffers[packet->bank].isHit(packet))
+			ERROR("CLOCK: "<< currentClockCycle <<" Accessed a READ while not hitted in bankBuffers\n");
+
+		// keep consistent with MC's bankBuffers state
+		bankBuffers[packet->bank].handle_hit(packet);
+
 		//make sure a R2B read is allowed
-		if (cacheStates[packet->bank].currentBufferState != Valid ||
-				currentClockCycle < cacheStates[packet->bank].nextRead ||
-			packet->row != cacheStates[packet->bank].openRowAddress)
+		if(currentClockCycle < bankBuffers[packet->bank].nextRead)
 		{
 			packet->print();
-		if (cacheStates[packet->bank].currentBufferState != Valid)
-			ERROR("== Error not Valid");
+/* 		if (bankBuffers[packet->bank].hitBuffer->state != BUFFER_VALID)
+ * 			ERROR("== Error not BUFFER_VALID");
+ */
 
-		if (currentClockCycle < cacheStates[packet->bank].nextRead)
+		if (currentClockCycle < bankBuffers[packet->bank].nextRead)
 			ERROR("== Error time is not arived");
 
-		if (packet->row != cacheStates[packet->bank].openRowAddress)
-			ERROR("== Error not the openRow");
+/* 		if (packet->row != bankBuffers[packet->bank].hitBuffer->row)
+ * 			ERROR("== Error not the openRow");
+ */
 
-			ERROR("== Error - Rank " << id << " received a READ when not allowed");
+/* 			ERROR("== Error - Rank " << id << " received a READ when not allowed");
+ */
 			exit(0);
 		}
 
 		//update cacheState table
 		for (size_t i=0;i<NUM_BANKS;i++)
 		{
-			cacheStates[i].nextRead = max(cacheStates[i].nextRead, currentClockCycle + BL/2);
+			bankBuffers[i].nextRead = max(bankBuffers[i].nextRead, currentClockCycle + BL/2);
+			// avoid data bus collapse
+	//		bankBuffers[i].nextRead = max(bankBuffers[i].nextRead + BL/2, bankStates[i].nextRead);
+			bankBuffers[i].nextWrite = max(bankBuffers[i].nextWrite, currentClockCycle + BL/2);
 		}
 
 #ifndef NO_STORAGE
@@ -219,6 +238,42 @@ void Rank::receiveFromBus(BusPacket *packet)
 		incomingWriteColumn = packet->column;
 		delete(packet);
 		break;
+#ifdef VICTIMBUFFER
+	case WRITE_B:
+		//make sure a write is allowed
+		if (!bankBuffers[packet->bank].isHit(packet))
+		{
+			ERROR("Received a WRITE_B while not hitted in bankBuffers\n");
+		}
+		//keep consistent with MC's bank buffers state
+		bankBuffers[packet->bank].handle_hit(packet);
+
+		//make sure a R2B read is allowed
+		//FIXME: tag and row need to checked ?
+		if(currentClockCycle < bankBuffers[packet->bank].nextWrite)
+		{
+			packet->print();
+			ERROR("== Error time is not arived");
+			exit(0);
+		}
+
+		//update cacheState table
+
+		for (size_t i=0;i<NUM_BANKS;i++)
+		{
+			//bankBuffers[i].nextRead = max(bankBuffers[i].nextRead, currentClockCycle + WRITE_TO_READ_DELAY_B);
+			//FIXME: consider WRITE_TO_READ_DELAY ?
+			bankBuffers[i].nextRead = max(bankBuffers[i].nextRead, currentClockCycle + BL/2);
+			bankBuffers[i].nextWrite = max(bankBuffers[i].nextWrite, currentClockCycle + BL/2);
+		}
+
+		//take note of where data is going when it arrives
+		incomingWriteBank = packet->bank;
+		incomingWriteRow = packet->row;
+		incomingWriteColumn = packet->column;
+		delete(packet);
+		break;
+#endif
 	case WRITE_P:
 		//make sure a write is allowed
 		if (bankStates[packet->bank].currentBankState != RowActive ||
@@ -294,13 +349,20 @@ void Rank::receiveFromBus(BusPacket *packet)
 		bankStates[packet->bank].nextActivate = max(bankStates[packet->bank].nextActivate, currentClockCycle + tRP);
 		delete(packet); 
 
-#ifdef ROWBUFFERBUFFER 
-		cacheStates[packet->bank].openRowAddress = packet->row;
-		cacheStates[packet->bank].currentBufferState = Valid;
-		cacheStates[packet->bank].nextRead = currentClockCycle;
-		//TODO: state change and other operates if
-		//replacement occurs
+#ifdef VICTIMBUFFER 
+		//FIXME: prepare buffer for next READ, WRITE UNDO
+		if (packet->row != bankStates[packet->bank].lastRow) {
+			ERROR("CLOCK: " << currentClockCycle <<" Last Bank Row access is different with Precharging Row! -- rank\n");
+			break;
+		}
+
+		bankBuffers[packet->bank].handle_pre(packet);
+
+		// 2 is pre to read
+		bankBuffers[packet->bank].nextRead = max(currentClockCycle, bankStates[packet->bank].nextRead);
+		bankBuffers[packet->bank].nextWrite = currentClockCycle;
 #endif
+
 
 		break;
 	case REFRESH:
@@ -375,6 +437,16 @@ void Rank::update()
 	{
 		// RL time has passed since the read was issued; this packet is
 		// ready to go out on the bus
+		if (outgoingDataPacket)
+	   	{
+			if (VERIFICATION_OUTPUT) {
+				outgoingDataPacket->print(currentClockCycle,true);
+				readReturnPacket[0]->print(currentClockCycle,true);
+				
+			}
+			ERROR("Data bus collapse!\n");
+		}
+
 
 		outgoingDataPacket = readReturnPacket[0];
 		dataCyclesLeft = BL/2;
@@ -433,8 +505,9 @@ void Rank::powerUp()
 		}
 		bankStates[i].nextActivate = currentClockCycle + tXP;
 		bankStates[i].currentBankState = Idle;
-#ifdef ROWBUFFERBUFFER
-		cacheStates[i].nextRead = currentClockCycle;
+#ifdef VICTIMBUFFER
+		bankBuffers[i].nextRead = currentClockCycle;
+		bankBuffers[i].nextWrite = currentClockCycle;
 #endif
 
 	}

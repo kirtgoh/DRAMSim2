@@ -40,8 +40,8 @@
 #include "Bank.h"
 #include "BankState.h"
 
-#ifdef ROWBUFFERBUFFER
-#include "RowBufferBuffer.h"
+#ifdef VICTIMBUFFER
+#include "Buffer.h"
 #endif
 
 using namespace std;
@@ -82,10 +82,10 @@ public:
 	vector<BusPacket *> readReturnPacket;
 	vector<unsigned> readReturnCountdown;
 	vector<Bank> banks;
-	vector<BankState> bankStates;
-#ifdef ROWBUFFERBUFFER
-	vector<RowBufferBuffer> cacheStates;
+#ifdef VICTIMBUFFER
+	vector<Buffer> bankBuffers;
 #endif
+	vector<BankState> bankStates;
 
 };
 }

@@ -47,8 +47,8 @@
 #include "SystemConfiguration.h"
 #include "SimulatorObject.h"
 
-#ifdef ROWBUFFERBUFFER
-#include "RowBufferBuffer.h"
+#ifdef VICTIMBUFFER
+#include "Buffer.h"
 #endif
 
 using namespace std;
@@ -66,9 +66,9 @@ public:
 	typedef vector<BusPacket2D> BusPacket3D;
 
 	//functions
-#ifdef ROWBUFFERBUFFER
-	CommandQueue(vector< vector<BankState> > &states, vector< vector<RowBufferBuffer > > &caches, ostream &dramsim_log);
-	bool isIssuableRBR(BusPacket *busPacket);
+#ifdef VICTIMBUFFER
+	CommandQueue(vector< vector<BankState> > &states, vector< vector<Buffer> > &buffers, ostream &dramsim_log);
+	bool isIssuableVRB(BusPacket *busPacket);
 #else
 	CommandQueue(vector< vector<BankState> > &states, ostream &dramsim_log);
 #endif
@@ -89,8 +89,8 @@ public:
 	BusPacket3D queues; // 3D array of BusPacket pointers
 	vector< vector<BankState> > &bankStates;
 
-#ifdef ROWBUFFERBUFFER
-	vector < vector<RowBufferBuffer> > &bankCaches;
+#ifdef VICTIMBUFFER
+	vector < vector<Buffer> > &bankBuffers;
 #endif
 
 private:

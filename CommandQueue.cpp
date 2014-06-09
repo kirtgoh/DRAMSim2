@@ -47,17 +47,14 @@
 using namespace DRAMSim;
 
 CommandQueue::CommandQueue(vector< vector<BankState> > &states,
-#ifdef ROWBUFFERBUFFER
-		vector < vector<RowBufferBuffer> > &caches,
+#ifdef VICTIMBUFFER
+		vector < vector<Buffer> > &buffers,
 #endif
 		ostream &dramsim_log_) :
 		dramsim_log(dramsim_log_),
-#ifdef ROWBUFFERCACHE
-		rankCaches(caches),
-#endif
 		bankStates(states),
-#ifdef ROWBUFFERBUFFER
-		bankCaches(caches),
+#ifdef VICTIMBUFFER
+		bankBuffers(buffers),
 #endif
 		nextBank(0),
 		nextRank(0),
@@ -385,7 +382,8 @@ bool CommandQueue::pop(BusPacket **busPacket)
 					if (closeRow && currentClockCycle >= bankStates[refreshRank][b].nextPrecharge)
 					{
 						rowAccessCounters[refreshRank][b]=0;
-						*busPacket = new BusPacket(PRECHARGE, 0, 0, 0, refreshRank, b, 0, dramsim_log);
+						//*busPacket = new BusPacket(PRECHARGE, 0, 0, 0, refreshRank, b, 0, dramsim_log);
+						*busPacket = new BusPacket(PRECHARGE, 0, 0, bankStates[refreshRank][b].openRowAddress, refreshRank, b, 0, dramsim_log);
 						sendingREForPRE = true;
 					}
 					break;
@@ -426,70 +424,86 @@ bool CommandQueue::pop(BusPacket **busPacket)
 					for (size_t i=0;i<queue.size();i++)
 					{
 						BusPacket *packet = queue[i];
-#ifdef ROWBUFFERBUFFER
-						//TODO: RowBufferBuffer operate
-/* 						if (isRBRhit(packet)) {
- * 							hits++;
- * 							read or write;
- * 							state change if needed;
- * 						}
- */
- 						if (bankCaches[nextRank][nextBank].isHit(packet))
-  						{
-							//isIssuable?
-							if (isIssuableRBR(packet))
+#ifdef VICTIMBUFFER
+						//TODO: Buffer operate
+						// #deadlock issue
+						// test: just read
+						if (!((queue[i]->busPacketType == ACTIVATE && queue[i+1]->busPacketType == WRITE) ||
+								queue[i]->busPacketType == WRITE)) {
+							if (bankBuffers[nextRank][nextBank].isHit(packet))
 							{
-								//check for dependencies
-								bool dependencyFound = false;
-								for (size_t j=0;j<i;j++)
+
+								if (isIssuableVRB(packet))
 								{
-									BusPacket *prevPacket = queue[j];
-									if (prevPacket->busPacketType != ACTIVATE &&
-											prevPacket->bank == packet->bank &&
-											prevPacket->row == packet->row)
+									//check for dependencies
+									bool dependencyFound = false;
+									for (size_t j=0;j<i;j++)
 									{
-										dependencyFound = true;
-										break;
+										BusPacket *prevPacket = queue[j];
+										if (prevPacket->busPacketType != ACTIVATE &&
+												prevPacket->bank == packet->bank &&
+												prevPacket->row == packet->row)
+										{
+											dependencyFound = true;
+											break;
+										}
 									}
+									if (dependencyFound) continue;
+									
+									if (packet->busPacketType == ACTIVATE)
+										ERROR("ACT is not allowed here!\n");
+
+									// VRB hitted , should change Packet Type
+									if (packet->busPacketType == READ) 
+									{
+										packet->busPacketType = READ_B;
+									} 
+									else if(packet->busPacketType == WRITE) 
+									{
+										packet->busPacketType = WRITE_B;
+
+									} else {
+										ERROR("Only READ and WRITE could generate Victim Buffer Command\n");
+										exit(-1);
+									}
+
+									// change bank buffer's priority
+									bankBuffers[nextRank][nextBank].handle_hit(packet);
+
+									*busPacket = packet;
+
+									//if the bus packet before is an activate, that is the act that was
+									//	paired with the column access we are removing, so we have to remove
+									//	that activate as well (check i>0 because if i==0 then theres nothing before it)
+									if (i>0 && queue[i-1]->busPacketType == ACTIVATE)
+									{
+									//	rowAccessCounters[(*busPacket)->rank][(*busPacket)->bank]++;
+										// i is being returned, but i-1 is being thrown away, so must delete it here 
+										delete (queue[i-1]);
+
+										// remove both i-1 (the activate) and i (we've saved the pointer in *busPacket)
+										queue.erase(queue.begin()+i-1,queue.begin()+i+1);
+									}
+									else // there's no activate before this packet
+									{
+										//or just remove the one bus packet
+										queue.erase(queue.begin()+i);
+									}
+
+									foundIssuable = true;
+									break;
 								}
-								if (dependencyFound) continue;
-								
-								// TODO: need new type
-								if (packet->busPacketType == READ) 
+								else
 								{
-									packet->busPacketType = READ_B;
-									printf("RBR hit!!\n");
+									// not allowd issue, search another for RBR
+									continue;
 								}
-
-								*busPacket = packet;
-
-								//if the bus packet before is an activate, that is the act that was
-								//	paired with the column access we are removing, so we have to remove
-								//	that activate as well (check i>0 because if i==0 then theres nothing before it)
-								if (i>0 && queue[i-1]->busPacketType == ACTIVATE)
-								{
-								//	rowAccessCounters[(*busPacket)->rank][(*busPacket)->bank]++;
-									// i is being returned, but i-1 is being thrown away, so must delete it here 
-									delete (queue[i-1]);
-
-									// remove both i-1 (the activate) and i (we've saved the pointer in *busPacket)
-									queue.erase(queue.begin()+i-1,queue.begin()+i+1);
-								}
-								else // there's no activate before this packet
-								{
-									//or just remove the one bus packet
-									queue.erase(queue.begin()+i);
-								}
-
-								foundIssuable = true;
-								break;
+	  
 							}
-							else
-							{
-								continue;
-							}
-  
-  						}
+						}
+
+						//FIXME: loop issue,  not hit is right ?
+						bankBuffers[nextRank][nextBank].misses++;
 
 #endif
 						if (isIssuable(packet))
@@ -698,20 +712,23 @@ vector<BusPacket *> &CommandQueue::getCommandQueue(unsigned rank, unsigned bank)
 
 }
 
-#ifdef ROWBUFFERBUFFER
+#ifdef VICTIMBUFFER
 //checks if busPacket is allowed to be issued to RBR
-bool CommandQueue::isIssuableRBR(BusPacket *busPacket)
+bool CommandQueue::isIssuableVRB(BusPacket *busPacket)
 {
 	switch (busPacket->busPacketType)
 	{
 	case ACTIVATE:
 		return false;
 		break;
-	case READ_B:
+	// before popped up , READ is checked
 	case READ:
-		if (bankCaches[busPacket->rank][busPacket->bank].currentBufferState == Valid &&
-		        currentClockCycle >= bankStates[busPacket->rank][busPacket->bank].nextRead &&
-		        busPacket->row == bankStates[busPacket->rank][busPacket->bank].openRowAddress)
+	case READ_B:
+		//FIXME: packet's tag needed ?
+		if (bankBuffers[busPacket->rank][busPacket->bank].hitBlock->state & BLOCK_VALID &&
+				currentClockCycle >= bankBuffers[busPacket->rank][busPacket->bank].nextRead &&
+				bankBuffers[busPacket->rank][busPacket->bank].getTag(busPacket->column) == bankBuffers[busPacket->rank][busPacket->bank].hitBlock->tag &&
+				busPacket->row == bankBuffers[busPacket->rank][busPacket->bank].hitBlock->row )
 		{
 			return true;
 		}
@@ -720,6 +737,22 @@ bool CommandQueue::isIssuableRBR(BusPacket *busPacket)
 			return false;
 		}
 		break;
+	case WRITE:
+	case WRITE_B:
+		//FIXME: MODIFIED also equals VALID 
+		if (bankBuffers[busPacket->rank][busPacket->bank].hitBlock->state & BLOCK_VALID &&
+				currentClockCycle >= bankBuffers[busPacket->rank][busPacket->bank].nextWrite &&
+				bankBuffers[busPacket->rank][busPacket->bank].getTag(busPacket->column) == bankBuffers[busPacket->rank][busPacket->bank].hitBlock->tag &&
+				busPacket->row == bankBuffers[busPacket->rank][busPacket->bank].hitBlock->row )
+		{
+			return true;
+		}
+		else
+		{
+			return false;
+		}
+		break;
+
 	default:
 		ERROR("== Error - Trying to issue a crazy bus packet type : ");
 		busPacket->print();
@@ -765,12 +798,16 @@ bool CommandQueue::isIssuable(BusPacket *busPacket)
 		}
 		break;
 	case READ_P:
+	//case READ_B:
 	case READ:
 		if (bankStates[busPacket->rank][busPacket->bank].currentBankState == RowActive &&
 		        currentClockCycle >= bankStates[busPacket->rank][busPacket->bank].nextRead &&
 		        busPacket->row == bankStates[busPacket->rank][busPacket->bank].openRowAddress &&
 		        rowAccessCounters[busPacket->rank][busPacket->bank] < TOTAL_ROW_ACCESSES)
 		{
+/* 			if (busPacket->busPacketType == READ_B)
+ * 				ERROR("should issued to VRB, while issued to dram\n");
+ */
 			return true;
 		}
 		else

@@ -56,7 +56,12 @@
 #define HISTOGRAM_BIN_SIZE 10
 
 extern std::ofstream cmd_verify_out; //used by BusPacket.cpp if VERIFICATION_OUTPUT is enabled
+
+//MOD_1st: kgoh  Wed 18 Jun 2014 08:31:33 PM CST
 extern std::ofstream trans_verify_out; //used by ?.cpp if VERIFICATION_OUTPUT is enabled
+extern std::ofstream cmdq_verify_out; //used by ?.cpp if VERIFICATION_OUTPUT is enabled
+
+//END_MOD
 //extern std::ofstream visDataOut;
 
 //TODO: namespace these to DRAMSim:: 
@@ -66,6 +71,7 @@ extern bool DEBUG_TRANS_Q;
 extern bool DEBUG_CMD_Q;
 extern bool DEBUG_ADDR_MAP;
 extern bool DEBUG_BANKSTATE;
+extern bool DEBUG_BUFFERSTATE;
 extern bool DEBUG_BUS;
 extern bool DEBUG_BANKS;
 extern bool DEBUG_POWER;

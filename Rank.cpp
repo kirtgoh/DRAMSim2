@@ -91,7 +91,7 @@ void Rank::receiveFromBus(BusPacket *packet)
 {
 	if (DEBUG_BUS)
 	{
-		PRINTN(" -- R" << this->id << " Receiving On Bus    : ");
+		PRINTN("("<< currentClockCycle <<")" <<" -- R" << this->id << " Receiving On Bus   : ");
 		packet->print();
 	}
 	if (VERIFICATION_OUTPUT)
@@ -110,40 +110,41 @@ void Rank::receiveFromBus(BusPacket *packet)
 	switch (packet->busPacketType)
 	{
 #ifdef VICTIMBUFFER
+	case RESTORE:
+		break;
+	case FETCH:
+		// (re)fill victim buffer
+		bankBuffers[packet->bank].buffer_access(packet);
+		bankBuffers[packet->bank].nextRead = max(currentClockCycle, bankStates[packet->bank].nextRead);
+		break;
 	case READ_B:
+		// if victim buffer hit, keep it's pointer
 		if (!bankBuffers[packet->bank].isHit(packet))
-			ERROR("CLOCK: "<< currentClockCycle <<" Accessed a READ while not hitted in bankBuffers\n");
-
-		// keep consistent with MC's bankBuffers state
-		bankBuffers[packet->bank].handle_hit(packet);
-
-		//make sure a R2B read is allowed
-		if(currentClockCycle < bankBuffers[packet->bank].nextRead)
 		{
-			packet->print();
-/* 		if (bankBuffers[packet->bank].hitBuffer->state != BUFFER_VALID)
- * 			ERROR("== Error not BUFFER_VALID");
- */
-
-		if (currentClockCycle < bankBuffers[packet->bank].nextRead)
-			ERROR("== Error time is not arived");
-
-/* 		if (packet->row != bankBuffers[packet->bank].hitBuffer->row)
- * 			ERROR("== Error not the openRow");
- */
-
-/* 			ERROR("== Error - Rank " << id << " received a READ when not allowed");
- */
+			ERROR("CLOCK: "<< currentClockCycle <<" Accessed a READ while not hitted in bankBuffers\n");
 			exit(0);
 		}
 
-		//update cacheState table
+		//make sure a read_b is allowed
+		if (!(bankBuffers[packet->bank].hitBlock->state & BLOCK_VALID)||
+		        currentClockCycle < bankBuffers[packet->bank].nextRead ||
+		        packet->row != bankBuffers[packet->bank].hitBlock->row ||
+				bankBuffers[packet->bank].getTag(packet->column) != bankBuffers[packet->bank].hitBlock->tag)
+		{
+			packet->print();
+			ERROR("== Error - Rank " << id << " received a READ when not allowed");
+			exit(0);
+		}
+
+		bankBuffers[packet->bank].buffer_access(packet);
+
+		//update buffer and bank state table
 		for (size_t i=0;i<NUM_BANKS;i++)
 		{
 			bankBuffers[i].nextRead = max(bankBuffers[i].nextRead, currentClockCycle + BL/2);
-			// avoid data bus collapse
-	//		bankBuffers[i].nextRead = max(bankBuffers[i].nextRead + BL/2, bankStates[i].nextRead);
-			bankBuffers[i].nextWrite = max(bankBuffers[i].nextWrite, currentClockCycle + BL/2);
+
+			bankStates[i].nextRead = max(bankStates[i].nextRead, currentClockCycle + BL/2);
+			bankStates[i].nextWrite = max(bankStates[i].nextWrite, currentClockCycle + READ_TO_WRITE_DELAY);
 		}
 
 #ifndef NO_STORAGE
@@ -350,17 +351,17 @@ void Rank::receiveFromBus(BusPacket *packet)
 		delete(packet); 
 
 #ifdef VICTIMBUFFER 
-		//FIXME: prepare buffer for next READ, WRITE UNDO
-		if (packet->row != bankStates[packet->bank].lastRow) {
-			ERROR("CLOCK: " << currentClockCycle <<" Last Bank Row access is different with Precharging Row! -- rank\n");
-			break;
-		}
-
-		bankBuffers[packet->bank].handle_pre(packet);
-
-		// 2 is pre to read
-		bankBuffers[packet->bank].nextRead = max(currentClockCycle, bankStates[packet->bank].nextRead);
-		bankBuffers[packet->bank].nextWrite = currentClockCycle;
+		// //FIXME: prepare buffer for next READ, WRITE UNDO
+		// if (packet->row != bankStates[packet->bank].lastRow) {
+		// 	ERROR("CLOCK: " << currentClockCycle <<" Last Bank Row access is different with Precharging Row! -- rank\n");
+		// 	break;
+		// }
+        //
+		// bankBuffers[packet->bank].handle_pre(packet);
+        //
+		// // 2 is pre to read
+		// bankBuffers[packet->bank].nextRead = max(currentClockCycle, bankStates[packet->bank].nextRead);
+		// bankBuffers[packet->bank].nextWrite = currentClockCycle;
 #endif
 
 
@@ -403,6 +404,19 @@ void Rank::receiveFromBus(BusPacket *packet)
 		exit(0);
 		break;
 	}
+
+#ifdef VICTIMBUFFER
+	if (DEBUG_BUFFERSTATE)
+	{
+		PRINT("== Printing buffer states (According to RANK) CLOCK: " << currentClockCycle);
+		for (size_t j=0;j<NUM_BANKS;j++)
+		{
+			//TODO: Buffer print itself Thu 19 Jun 2014 08:56:18 AM CST
+			// bankBuffers[j].print();
+			PRINT("");
+		}
+	}
+#endif
 }
 
 int Rank::getId() const

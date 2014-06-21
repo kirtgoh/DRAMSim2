@@ -62,6 +62,14 @@ CommandQueue::CommandQueue(vector< vector<BankState> > &states,
 		nextRankPRE(0),
 		refreshRank(0),
 		refreshWaiting(false),
+		//kgoh
+		fetchRank(0),
+		fetchBank(0),
+		fetchWaiting(false),
+		restoreRank(0),
+		restoreBank(0),
+		restoreWaiting(false),
+		//end
 		sendAct(true)
 {
 	//set here to avoid compile errors
@@ -335,6 +343,78 @@ bool CommandQueue::pop(BusPacket **busPacket)
 	else if (rowBufferPolicy==OpenPage)
 	{
 		bool sendingREForPRE = false;
+
+#ifdef VICTIMBUFFER
+		//MOD: kgoh fetchWaiting Thu 19 Jun 2014 03:22:31 PM CST
+		//TODO: during bank FETCH or RESTORE, other bank and buffer should not be limited Thu 19 Jun 2014 10:20:25 PM CST
+		if (restoreWaiting)
+		{
+			// RESTORE target bank
+			CurrentBankState bs = bankStates[restoreRank][restoreBank].currentBankState;
+			uint32_t row =  bankStates[restoreRank][restoreBank].openRowAddress;
+			// RESTORE source block
+			Block *pBlk = bankBuffers[restoreRank][restoreBank].get_repl(bankStates[restoreRank][restoreBank].lastCol);
+
+			if (bs == RowActive)
+			{
+				// if not the row is open, prechage it!
+				if (pBlk->row != row)
+				{
+					// need to PREHARGE 
+					if (currentClockCycle >= bankStates[restoreRank][restoreBank].nextPrecharge)
+						*busPacket = new BusPacket(PRECHARGE, 0, 0, row, restoreRank, restoreBank, 0, dramsim_log);
+				} else {
+					// row is open, just rest
+					*busPacket = new BusPacket(RESTORE, 0, 0, row, restoreRank, restoreBank,0,dramsim_log);
+					restoreWaiting = false;
+				}
+
+
+			}
+		   	else if ( bs == Idle)
+			{
+				// issue ACT to open it
+				// need to PREHARGE 
+				if (currentClockCycle >= bankStates[restoreRank][restoreBank].nextActivate)
+					*busPacket = new BusPacket(ACTIVATE, 0, 0, row, restoreRank, restoreBank, 0, dramsim_log);
+			}
+		}
+
+
+		if (fetchWaiting)
+		{
+			// DEBUG("lastCow : " << bankStates[fetchRank][fetchBank].lastCol);
+			// DEBUG("lastRow : " << bankStates[fetchRank][fetchBank].lastRow);
+			//TODO: if the target Block is Modified, we can't send a FETCH Thu 19 Jun 2014 06:37:03 PM CST
+			// DEBUG("(" << currentClockCycle <<")" << "we are in fetchWaiting");
+			unsigned col = bankStates[fetchRank][fetchBank].lastCol;
+			Block *b = bankBuffers[fetchRank][fetchBank].get_repl(col);
+			if (b->state == BLOCK_MODIFIED)
+			{
+				DEBUG("[" << fetchRank << "][" <<fetchBank<< "] "<< fetchBank <<"repl block's state is : BLOCK_MODIFIED");
+				needRestore(fetchRank, fetchBank, col);
+			}
+
+			// if Bank is not RowActive, send a ACT
+			if (bankStates[fetchRank][fetchBank].currentBankState != RowActive
+					&& currentClockCycle >= bankStates[fetchRank][fetchBank].nextActivate)
+			{
+				DEBUG("(" << currentClockCycle <<")" << "we are in fetchWaiting: return a ACT");
+				*busPacket = new BusPacket(ACTIVATE, 0, 0, bankStates[restoreRank][restoreBank].lastRow, restoreRank, restoreBank, 0, dramsim_log);
+				return true;
+			}
+
+			// OK, ...sending a FETCH
+			// DEBUG("(" << currentClockCycle <<")" << "we are in fetchWaiting: return a FETCH");
+			//FIXME: info error;
+			*busPacket = new BusPacket(FETCH, 0, 0, bankStates[restoreRank][restoreBank].lastRow, fetchRank, fetchBank, 0, dramsim_log);
+			fetchWaiting = false;
+			return true;
+
+		}
+#endif
+		
+		//END_MOD
 		if (refreshWaiting)
 		{
 			bool sendREF = true;
@@ -377,9 +457,45 @@ bool CommandQueue::pop(BusPacket **busPacket)
 							}
 						}
 					}
+#ifdef VICTIMBUFFER
+					//MOD: kgoh REFRESH PRECHARGE handle Fri 20 Jun 2014 11:50:44 PM CST
+					if (closeRow && (bankStates[refreshRank][b].lastCommand != FETCH)
+								&& currentClockCycle >= (bankStates[refreshRank][b].nextPrecharge))
+					{
+						bool sendingFEH = true;
+						// test if need restore
+						//
+						// column needed to fetch, get target buffer set
+						unsigned col = bankStates[refreshRank][b].lastCol;
+						Block *blk = bankBuffers[refreshRank][b].get_repl(col);
+
+						// target block need to restore, restore it before fetch
+						if (blk->state == BLOCK_MODIFIED)
+						{
+							DEBUG("[" << refreshRank<< "]["<< b<< "], repl block's state is : BLOCK_MODIFIED");
+							needRestore(refreshRank, b, col);
+							sendingFEH = false;
+						}
+
+						// OK, ...sending a FETCH
+						if (sendingFEH)
+						{
+							// DEBUG("(" << currentClockCycle <<")" << "OK, ...sending a FETCH");
+
+							*busPacket = new BusPacket(FETCH, 0, bankStates[refreshRank][b].lastCol, bankStates[refreshRank][b].lastRow
+									, refreshRank, b, 0, dramsim_log);
+							fetchWaiting = false;
+							return true;
+						} else {
+							needFetch(refreshRank,b);
+						}
+					}
 
 					//if the bank is open and we are allowed to close it, then send a PRE
+					else if (closeRow && currentClockCycle >= bankStates[refreshRank][b].nextPrecharge)
+#else
 					if (closeRow && currentClockCycle >= bankStates[refreshRank][b].nextPrecharge)
+#endif
 					{
 						rowAccessCounters[refreshRank][b]=0;
 						//*busPacket = new BusPacket(PRECHARGE, 0, 0, 0, refreshRank, b, 0, dramsim_log);
@@ -468,7 +584,8 @@ bool CommandQueue::pop(BusPacket **busPacket)
 									}
 
 									// change bank buffer's priority
-									bankBuffers[nextRank][nextBank].handle_hit(packet);
+									// move to buffer_access
+//									bankBuffers[nextRank][nextBank].handle_hit(packet);
 
 									*busPacket = packet;
 
@@ -576,6 +693,7 @@ bool CommandQueue::pop(BusPacket **busPacket)
 			//	that has no other commands waiting
 			if (!foundIssuable)
 			{
+				// DEBUG("(" << currentClockCycle <<")" << "not found isIssuable");
 				//search for banks to close
 				bool sendingPRE = false;
 				unsigned startingRank = nextRankPRE;
@@ -602,8 +720,49 @@ bool CommandQueue::pop(BusPacket **busPacket)
 						//if nothing found going to that bank and row or too many accesses have happend, close it
 						if (!found || rowAccessCounters[nextRankPRE][nextBankPRE]==TOTAL_ROW_ACCESSES)
 						{
-							if (currentClockCycle >= bankStates[nextRankPRE][nextBankPRE].nextPrecharge)
+							// DEBUG("(" << currentClockCycle <<")" << "not found going to that bank and last command :" << bankStates[nextRankPRE][nextBankPRE].lastCommand \
+									<< "nextPrecharge clock limit:" << bankStates[nextRankPRE][nextBankPRE].nextPrecharge);
+#ifdef VICTIMBUFFER
+							//MOD: kgoh FETCH before PRE Thu 19 Jun 2014 04:03:10 PM CST
+							if ((bankStates[nextRankPRE][nextBankPRE].lastCommand != FETCH)
+										&& currentClockCycle >= (bankStates[nextRankPRE][nextBankPRE].nextPrecharge))
 							{
+								bool sendingFEH = true;
+								// test if need restore
+								//
+								// column needed to fetch, get target buffer set
+								unsigned col = bankStates[nextRankPRE][nextBankPRE].lastCol;
+								Block *blk = bankBuffers[nextRankPRE][nextBankPRE].get_repl(col);
+
+								// target block need to restore, restore it before fetch
+								if (blk->state == BLOCK_MODIFIED)
+								{
+									DEBUG("[" << nextRankPRE<< "][" <<nextBankPRE<< "], repl block's state is : BLOCK_MODIFIED");
+									needRestore(nextRankPRE, nextBankPRE, col);
+									sendingFEH = false;
+								}
+
+								// OK, ...sending a FETCH
+								if (sendingFEH)
+								{
+									// DEBUG("(" << currentClockCycle <<")" << "OK, ...sending a FETCH");
+
+									*busPacket = new BusPacket(FETCH, 0, bankStates[nextRankPRE][nextBankPRE].lastCol, bankStates[nextRankPRE][nextBankPRE].lastRow
+											, nextRankPRE, nextBankPRE, 0, dramsim_log);
+									fetchWaiting = false;
+									return true;
+								} else {
+									needFetch(nextRankPRE,nextBankPRE);
+								}
+							}
+
+							else if (currentClockCycle >= bankStates[nextRankPRE][nextBankPRE].nextPrecharge)
+							//END_MOD
+#else
+							if (currentClockCycle >= bankStates[nextRankPRE][nextBankPRE].nextPrecharge)
+#endif
+							{
+								// DEBUG("(" << currentClockCycle <<")" << "not found going to that bank, could send PRE, last command :" << bankStates[nextRankPRE][nextBankPRE].lastCommand);
 								sendingPRE = true;
 								rowAccessCounters[nextRankPRE][nextBankPRE] = 0;
 								//*busPacket = new BusPacket(PRECHARGE, 0, 0, 0, nextRankPRE, nextBankPRE, 0, dramsim_log);
@@ -657,6 +816,48 @@ void CommandQueue::print()
 {
 	if (queuingStructure==PerRank)
 	{
+		//MOD: kgoh add clock Wed 18 Jun 2014 10:09:26 PM CST
+		//PRINT(endl << "== Printing Per Rank Queue" );
+		PRINT(endl << "== Printing Per Rank Queue" << "(CLOCK: " << currentClockCycle << ")");
+		//END_MOD
+		for (size_t i=0;i<NUM_RANKS;i++)
+		{
+			PRINT(" = Rank " << i << "  size : " << queues[i][0].size() );
+			for (size_t j=0;j<queues[i][0].size();j++)
+			{
+				PRINTN("    "<< j << "]");
+				queues[i][0][j]->print();
+			}
+		}
+	}
+	else if (queuingStructure==PerRankPerBank)
+	{
+		//MOD: kgoh add clock Wed 18 Jun 2014 10:09:26 PM CST
+		// PRINT("\n== Printing Per Rank, Per Bank Queue" );
+		PRINT("\n== Printing Per Rank, Per Bank Queue" <<"(CLOCK: " << currentClockCycle << ")");
+		//END_MOD
+
+		for (size_t i=0;i<NUM_RANKS;i++)
+		{
+			PRINT(" = Rank " << i );
+			for (size_t j=0;j<NUM_BANKS;j++)
+			{
+				PRINT("    Bank "<< j << "   size : " << queues[i][j].size() );
+
+				for (size_t k=0;k<queues[i][j].size();k++)
+				{
+					PRINTN("       " << k << "]");
+					queues[i][j][k]->print();
+				}
+			}
+		}
+	}
+}
+//MOD: kgoh for cmdq verfiy  Wed 18 Jun 2014 08:38:54 PM CST
+void CommandQueue::print(uint64_t currentClockCycle)
+{
+	if (queuingStructure==PerRank)
+	{
 		PRINT(endl << "== Printing Per Rank Queue" );
 		for (size_t i=0;i<NUM_RANKS;i++)
 		{
@@ -688,6 +889,7 @@ void CommandQueue::print()
 		}
 	}
 }
+//END_MOD
 
 /** 
  * return a reference to the queue for a given rank, bank. Since we
@@ -862,6 +1064,21 @@ void CommandQueue::needRefresh(unsigned rank)
 	refreshWaiting = true;
 	refreshRank = rank;
 }
+//MOD: kgoh needFetch Thu 19 Jun 2014 03:29:47 PM CST
+void CommandQueue::needFetch(unsigned rank, unsigned bank)
+{
+	fetchRank = rank;
+	fetchBank = bank;
+	fetchWaiting = true;
+
+}
+void CommandQueue::needRestore(unsigned rank, unsigned bank, unsigned col)
+{
+	restoreRank = rank;
+	restoreBank = bank;
+	restoreWaiting = true;
+}
+//END_MOD
 
 void CommandQueue::nextRankAndBank(unsigned &rank, unsigned &bank)
 {

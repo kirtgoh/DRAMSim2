@@ -44,7 +44,11 @@ using namespace std;
 
 
 ofstream cmd_verify_out; //used in Rank.cpp and MemoryController.cpp if VERIFICATION_OUTPUT is set
+//MOD: kgoh trans/cmdq Wed 18 Jun 2014 08:29:19 PM CST
+//for outer declare
 ofstream trans_verify_out;
+ofstream cmdq_verify_out;
+//END_MOD
 
 unsigned NUM_DEVICES;
 unsigned NUM_RANKS;
@@ -167,9 +171,16 @@ MemorySystem::~MemorySystem()
 	{
 		cmd_verify_out.flush();
 		cmd_verify_out.close();
-		// buffer = 1 or not , both should extract trans info
+		
+		//MOD: kgoh verfiy output Wed 18 Jun 2014 08:35:30 PM CST
 		trans_verify_out.flush();
 		trans_verify_out.close();
+
+		cmdq_verify_out.flush();
+		cmdq_verify_out.close();
+		
+		
+		//END_MOD
 	}
 }
 

@@ -41,10 +41,14 @@ namespace DRAMSim
 {
 enum BusPacketType
 {
-	READ,
-	READ_P,
+	//MOD: kgoh READ_B/WRITE_B/FETCH/RESTORE Thu 19 Jun 2014 06:19:46 PM CST
+	FETCH,
+	RESTORE,	
 	READ_B,
 	WRITE_B,
+	//END_MOD
+	READ,
+	READ_P,
 	WRITE,
 	WRITE_P,
 	ACTIVATE,

@@ -48,7 +48,7 @@
 #include "Transaction.h"
 #include "IniReader.h"
 
-#include <test.h>
+#include "test.h"
 
 
 using namespace DRAMSim;
@@ -379,8 +379,8 @@ int main(int argc, char **argv)
 	string deviceIniFilename;
 	string pwdString;
 	string *visFilename = NULL;
-	unsigned megsOfMemory=4096;
-	bool useClockCycle=true;
+	unsigned megsOfMemory=1024;
+	bool useClockCycle=false;
 	bool is_test = false;
 	
 	IniReader::OverrideMap *paramOverrides = NULL; 

@@ -60,6 +60,7 @@ void Buffer::init()
 	mask_set = numOfSets - 1;
 	// NUM_COLS refer to 8 device chip bits and 8 depth bits
 	mask_tag = (1 << (dramsim_log2(NUM_COLS) - 3 - shift_tag)) -1;
+
 }
 
 //FIXME: Segment Fault, before Buffer init , deconstruct happens.
@@ -123,6 +124,7 @@ void BufferSet::update_way_list(Block *blk, BufferPolicy policy)
 			else
 			{
 			  // middle of list (and not front or end of list)
+			  // DEBUG("update_way_list");
 			  blk->way_prev->way_next = blk->way_next;
 			  blk->way_next->way_prev = blk->way_prev;
 			}
@@ -204,7 +206,7 @@ int Buffer::handle_pre(BusPacket *packet)
 	// the appropriate place in the way list
 	Block *repl = NULL;
 
-	// find a free buffer slot
+	// find a block slot
 	switch (policy)
 	{
 		case LRU:
@@ -242,5 +244,93 @@ int Buffer::handle_pre(BusPacket *packet)
  */
 
 	return 0;
+}
+
+void Buffer::buffer_access(BusPacket *packet)
+{
+	// block address using
+  	uint32_t tag = BLOCK_TAG(packet->column);
+  	uint32_t set = BLOCK_SET(packet->column);
+
+	Block *repl = NULL;
+	switch(packet->busPacketType)
+	{
+		// select the appropriate block to replace, and re-link this entry to
+		// the appropriate place in the way list
+		case FETCH:
+			repl = Sets[set]->way_tail;
+			// (re)fill this block
+			repl->row = packet->row;
+			repl->tag = tag;
+			repl->state = BLOCK_VALID;
+
+			Sets[set]->update_way_list(repl, policy);
+			break;
+		case RESTORE:
+			break;
+		case READ_B:
+			if (!hitBlock)
+			{
+				ERROR("there is no hit buffer, when a read_b issued");
+				exit(-1);
+			}
+
+			hits++;
+			// move this block to head of the way (MRU) list
+			Sets[set]->update_way_list(hitBlock, policy);
+			break;
+		case WRITE_B:
+			break;
+		default:
+			ERROR("unknown buffer access command!\n");
+	}
+}
+// void Buffer::print()
+// {
+// 	if (this == NULL)
+// 	{
+// 		return;
+// 	}
+// 	else
+// 	{
+// 		for (size_t i=0; i < numOfSets; i++)
+// 		{
+// 			for (Block *p = Sets[i]->way_tail; p; p = p->way_prev)
+// 				p->print();
+// 			PRINT("");
+// 		}
+// 	}
+// }
+// void Block::print()
+// {
+// 	if (this == NULL)
+// 	{
+// 		return;
+// 	}
+// 	else
+// 	{
+// 		switch(state)
+// 		{
+// 		case BLOCK_VALID:
+// 			PRINTN("[" << row << ":" << tag << "]" );
+// 			break;
+// 		case BLOCK_INVALID:
+// 			PRINTN("[invalid]");
+// 			break;
+// 		case BLOCK_MODIFIED:
+// 			PRINTN("[modified]");
+// 			break;
+// 		default:
+// 			ERROR("Trying to print unkown kind of block");
+// 			exit(-1);
+//
+// 		}
+// 	}
+// }
+Block* Buffer::get_repl(unsigned col)
+{
+
+  	uint32_t set = BLOCK_SET(col);
+	return Sets[set]->way_tail;
 }
 

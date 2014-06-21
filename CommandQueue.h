@@ -81,6 +81,11 @@ public:
 	bool isEmpty(unsigned rank);
 	void needRefresh(unsigned rank);
 	void print();
+	//MOD: kgoh for cmdq verfiy Wed 18 Jun 2014 08:39:22 PM CST
+	void print(uint64_t currentClockCycle);
+	void needFetch(unsigned rank, unsigned bank);
+	void needRestore(unsigned rank, unsigned bank, unsigned col);
+	//END_MOD
 	void update(); //SimulatorObject requirement
 	vector<BusPacket *> &getCommandQueue(unsigned rank, unsigned bank);
 
@@ -104,6 +109,16 @@ private:
 
 	unsigned refreshRank;
 	bool refreshWaiting;
+
+	//kgoh
+	unsigned fetchRank;
+	unsigned fetchBank;
+	bool fetchWaiting;
+
+	unsigned restoreRank;
+	unsigned restoreBank;
+	bool restoreWaiting;
+	//end
 
 	vector< vector<unsigned> > tFAWCountdown;
 	vector< vector<unsigned> > rowAccessCounters;

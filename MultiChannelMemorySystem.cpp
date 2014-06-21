@@ -184,6 +184,8 @@ void MultiChannelMemorySystem::InitOutputFiles(string traceFilename)
 	// as the stream 'cmd_verify_out'
 	if (VERIFICATION_OUTPUT)
 	{
+		//MOD: kgoh cmd/trans/cmdq verified output Wed 18 Jun 2014 07:21:25 PM CST
+		//1st: create seperate file
 		string basefilename = deviceIniFilename.substr(deviceIniFilename.find_last_of("/")+1);
 		string verify_filename =  "sim_out_"+basefilename;
 		if (sim_description != NULL)
@@ -197,15 +199,21 @@ void MultiChannelMemorySystem::InitOutputFiles(string traceFilename)
 			ERROR("Cannot open "<< verify_filename);
 			abort(); 
 		}
-
-		string trans_verify_filename =  "mase_run_out";
-		trans_verify_filename += ".trc";
-		trans_verify_out.open(trans_verify_filename.c_str());
+		//trans
+		trans_verify_out.open((verify_filename + ".trc").c_str());
 		if (!trans_verify_out)
 		{
-			ERROR("Cannot open "<< trans_verify_filename);
+			ERROR("Cannot open "<< verify_filename + ".trc");
 			abort(); 
 		}
+		//cmdq
+		cmdq_verify_out.open((verify_filename + ".cmdq").c_str());
+		if (!cmdq_verify_out)
+		{
+			ERROR("Cannot open "<< verify_filename + ".cmdq");
+			abort(); 
+		}
+		//END_MOD
 	}
 	// This sets up the vis file output along with the creating the result
 	// directory structure if it doesn't exist
@@ -503,9 +511,11 @@ void MultiChannelMemorySystem::printStats(bool finalStats) {
 	(*csvOut) << "ms" <<currentClockCycle * tCK * 1E-6; 
 	for (size_t i=0; i<NUM_CHANS; i++)
 	{
+		//MOD: kgoh hide Wed 18 Jun 2014 10:18:01 PM CST
 		PRINT("==== Channel ["<<i<<"] ====");
 		channels[i]->printStats(finalStats); 
 		PRINT("//// Channel ["<<i<<"] ////");
+		//END_MOD
 	}
 	csvOut->finalize();
 }

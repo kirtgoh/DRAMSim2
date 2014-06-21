@@ -25,6 +25,8 @@ typedef struct _Block	// per-block size is N times of cacheline
 	uint32_t tag;
 	unsigned state;
 
+	// void print();
+
 } Block;
 
 class BufferSet
@@ -90,6 +92,7 @@ public:
 	int handle_hit(BusPacket *p);
 	int handle_pre(BusPacket *p);
 
+	void buffer_access(BusPacket *p);
 	// return Size of Buffer in bytes
 	int get_size() const {
 		return sizeOfBuffer;
@@ -141,7 +144,9 @@ public:
 	Block *hitBlock;
 
 	bool isHit(BusPacket *packet);
-
+	
+	Block* get_repl(unsigned col);
+	// void print();
 
 };
 

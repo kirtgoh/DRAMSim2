@@ -56,8 +56,8 @@ Rank::Rank(ostream &dramsim_log_) :
 	dataCyclesLeft = 0;
 	currentClockCycle = 0;
 #ifdef VICTIMBUFFER
-		for (size_t j = 0; j < NUM_BANKS; j++)
-			bankBuffers[j].init();
+	for (size_t j = 0; j < NUM_BANKS; j++)
+		bankBuffers[j].init();
 #endif
 
 
@@ -111,6 +111,8 @@ void Rank::receiveFromBus(BusPacket *packet)
 	{
 #ifdef VICTIMBUFFER
 	case RESTORE:
+		bankStates[packet->bank].lastCommand = RESTORE;
+		bankBuffers[packet->bank].buffer_access(packet);
 		break;
 	case FETCH:
 		// (re)fill victim buffer
@@ -142,6 +144,7 @@ void Rank::receiveFromBus(BusPacket *packet)
 		for (size_t i=0;i<NUM_BANKS;i++)
 		{
 			bankBuffers[i].nextRead = max(bankBuffers[i].nextRead, currentClockCycle + BL/2);
+			bankBuffers[i].nextWrite = max(bankBuffers[i].nextWrite, currentClockCycle + READ_TO_WRITE_DELAY);
 
 			bankStates[i].nextRead = max(bankStates[i].nextRead, currentClockCycle + BL/2);
 			bankStates[i].nextWrite = max(bankStates[i].nextWrite, currentClockCycle + READ_TO_WRITE_DELAY);
@@ -154,6 +157,41 @@ void Rank::receiveFromBus(BusPacket *packet)
 #endif
 		readReturnPacket.push_back(packet);
 		readReturnCountdown.push_back(RL);
+		break;
+	case WRITE_B:
+		if (!bankBuffers[packet->bank].isHit(packet))
+		{
+			ERROR("Received a WRITE_B while not hitted in bankBuffers\n");
+		}
+
+		//make sure a write_b is allowed
+		if (!(bankBuffers[packet->bank].hitBlock->state & BLOCK_VALID) ||
+		        currentClockCycle < bankBuffers[packet->bank].nextWrite ||
+		        packet->row != bankBuffers[packet->bank].hitBlock->row ||
+		        bankBuffers[packet->bank].getTag(packet->column) != bankBuffers[packet->bank].hitBlock->tag )
+		{
+			packet->print();
+			ERROR("== Error - Rank " << id << " received a WRITE_B when not allowed");
+			exit(0);
+		}
+
+		bankBuffers[packet->bank].buffer_access(packet);
+
+		//update buffer and bank state table
+		for (size_t i=0;i<NUM_BANKS;i++)
+		{
+			bankBuffers[i].nextRead = max(bankBuffers[i].nextRead, currentClockCycle + WRITE_TO_READ_DELAY_B);
+			bankBuffers[i].nextWrite = max(bankBuffers[i].nextWrite, currentClockCycle + max(BL/2, tCCD));
+
+			bankStates[i].nextRead = max(bankStates[i].nextRead, currentClockCycle + WRITE_TO_READ_DELAY_B);
+			bankStates[i].nextWrite = max(bankStates[i].nextWrite, currentClockCycle + max(BL/2, tCCD));
+		}
+
+		//take note of where data is going when it arrives
+		incomingWriteBank = packet->bank;
+		incomingWriteRow = packet->row;
+		incomingWriteColumn = packet->column;
+		delete(packet);
 		break;
 #endif
 	case READ:
@@ -239,42 +277,6 @@ void Rank::receiveFromBus(BusPacket *packet)
 		incomingWriteColumn = packet->column;
 		delete(packet);
 		break;
-#ifdef VICTIMBUFFER
-	case WRITE_B:
-		//make sure a write is allowed
-		if (!bankBuffers[packet->bank].isHit(packet))
-		{
-			ERROR("Received a WRITE_B while not hitted in bankBuffers\n");
-		}
-		//keep consistent with MC's bank buffers state
-		bankBuffers[packet->bank].handle_hit(packet);
-
-		//make sure a R2B read is allowed
-		//FIXME: tag and row need to checked ?
-		if(currentClockCycle < bankBuffers[packet->bank].nextWrite)
-		{
-			packet->print();
-			ERROR("== Error time is not arived");
-			exit(0);
-		}
-
-		//update cacheState table
-
-		for (size_t i=0;i<NUM_BANKS;i++)
-		{
-			//bankBuffers[i].nextRead = max(bankBuffers[i].nextRead, currentClockCycle + WRITE_TO_READ_DELAY_B);
-			//FIXME: consider WRITE_TO_READ_DELAY ?
-			bankBuffers[i].nextRead = max(bankBuffers[i].nextRead, currentClockCycle + BL/2);
-			bankBuffers[i].nextWrite = max(bankBuffers[i].nextWrite, currentClockCycle + BL/2);
-		}
-
-		//take note of where data is going when it arrives
-		incomingWriteBank = packet->bank;
-		incomingWriteRow = packet->row;
-		incomingWriteColumn = packet->column;
-		delete(packet);
-		break;
-#endif
 	case WRITE_P:
 		//make sure a write is allowed
 		if (bankStates[packet->bank].currentBankState != RowActive ||
@@ -412,7 +414,7 @@ void Rank::receiveFromBus(BusPacket *packet)
 		for (size_t j=0;j<NUM_BANKS;j++)
 		{
 			//TODO: Buffer print itself Thu 19 Jun 2014 08:56:18 AM CST
-			// bankBuffers[j].print();
+			bankBuffers[j].print();
 			PRINT("");
 		}
 	}

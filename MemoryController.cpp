@@ -473,6 +473,10 @@ void MemoryController::update()
 				bankStates[rank][bank].openRowAddress = poppedBusPacket->row;
 				bankStates[rank][bank].nextActivate = max(currentClockCycle + tRC, bankStates[rank][bank].nextActivate);
 				bankStates[rank][bank].nextPrecharge = max(currentClockCycle + tRAS, bankStates[rank][bank].nextPrecharge);
+#ifdef VICTIMBUFFER
+				// used nextRead have some problem, when other bank read or write, nextRead may bigger
+				bankStates[rank][bank].nextRestore= max(currentClockCycle + tRCD, bankStates[rank][bank].nextRestore);
+#endif
 
 				//if we are using posted-CAS, the next column access can be sooner than normal operation
 
@@ -532,6 +536,13 @@ void MemoryController::update()
 
 				break;
 #ifdef VICTIMBUFFER
+			case FETCH:
+				bankStates[rank][bank].lastCommand = FETCH;
+				// (re)fill victim buffer
+				bankBuffers[rank][bank].buffer_access(poppedBusPacket);
+				// avoid data bus collpase with row buffer access
+				bankBuffers[rank][bank].nextRead = max(currentClockCycle, bankStates[rank][bank].nextRead);
+				break;
 			case READ_B:
 				bankBuffers[rank][bank].buffer_access(poppedBusPacket);
 				// victim buffer and row buffer share databus
@@ -542,6 +553,8 @@ void MemoryController::update()
 						if (i!=poppedBusPacket->rank)
 						{
 							bankBuffers[i][j].nextRead = max(currentClockCycle + BL/2 + tRTRS, bankBuffers[i][j].nextRead);
+							bankBuffers[i][j].nextWrite = max(currentClockCycle + READ_TO_WRITE_DELAY,
+									bankBuffers[i][j].nextWrite);
 
 							bankStates[i][j].nextRead = max(currentClockCycle + BL/2 + tRTRS, bankStates[i][j].nextRead);
 							bankStates[i][j].nextWrite = max(currentClockCycle + READ_TO_WRITE_DELAY,
@@ -550,6 +563,8 @@ void MemoryController::update()
 						else
 						{
 							bankBuffers[i][j].nextRead = max(currentClockCycle + BL/2, bankBuffers[i][j].nextRead);
+							bankBuffers[i][j].nextWrite = max(currentClockCycle + READ_TO_WRITE_DELAY,
+									bankBuffers[i][j].nextWrite);
 
 							bankStates[i][j].nextRead = max(currentClockCycle +BL/2, bankStates[i][j].nextRead);
 							bankStates[i][j].nextWrite = max(currentClockCycle + READ_TO_WRITE_DELAY,
@@ -560,36 +575,39 @@ void MemoryController::update()
 
 				break;
 			case WRITE_B:
+				bankBuffers[rank][bank].buffer_access(poppedBusPacket);
+
 				for (size_t i=0;i<NUM_RANKS;i++)
 				{
 					for (size_t j=0;j<NUM_BANKS;j++)
 					{
 						if (i!=poppedBusPacket->rank)
 						{
-							//check to make sure it is active before trying to set (save's time?)
-							//if (bankBuffers[i][j].state == BUFFER_VALID)
-							{
-								bankBuffers[i][j].nextWrite = max(currentClockCycle + BL/2 + tRTRS, bankBuffers[i][j].nextWrite);
-								bankBuffers[i][j].nextRead = max(currentClockCycle + BL/2 + tRTRS, bankBuffers[i][j].nextRead);
-							}
+							bankBuffers[i][j].nextWrite = max(currentClockCycle + BL/2 + tRTRS, bankBuffers[i][j].nextWrite);
+							bankBuffers[i][j].nextRead = max(currentClockCycle + WRITE_TO_READ_DELAY_R,
+									bankBuffers[i][j].nextRead);
+
+							bankStates[i][j].nextWrite = max(currentClockCycle + BL/2 + tRTRS, bankStates[i][j].nextWrite);
+							bankStates[i][j].nextRead = max(currentClockCycle + WRITE_TO_READ_DELAY_R,
+									bankStates[i][j].nextRead);
 						}
 						else
 						{
-							bankBuffers[i][j].nextWrite = max(currentClockCycle + BL/2, bankBuffers[i][j].nextWrite);
-							bankBuffers[i][j].nextRead = max(currentClockCycle + BL/2, bankBuffers[i][j].nextRead);
+							bankBuffers[i][j].nextWrite = max(currentClockCycle + max(BL/2, tCCD), bankBuffers[i][j].nextWrite);
+							bankBuffers[i][j].nextRead = max(currentClockCycle + WRITE_TO_READ_DELAY_B,
+									bankBuffers[i][j].nextRead);
+
+							bankStates[i][j].nextWrite = max(currentClockCycle + max(BL/2, tCCD), bankStates[i][j].nextWrite);
+							bankStates[i][j].nextRead = max(currentClockCycle + WRITE_TO_READ_DELAY_B,
+									bankStates[i][j].nextRead);
 						}
 					}
 				}
+
 				break;
 			case RESTORE:
-				bankStates[rank][bank].lastCommand = RESTORE;
-				break;
-			case FETCH:
-				bankStates[rank][bank].lastCommand = FETCH;
-				// (re)fill victim buffer
 				bankBuffers[rank][bank].buffer_access(poppedBusPacket);
-				// avoid data bus collpase with row buffer access
-				bankBuffers[rank][bank].nextRead = max(currentClockCycle, bankStates[rank][bank].nextRead);
+				bankStates[rank][bank].lastCommand = RESTORE;
 				break;
 #endif
 			default:
@@ -873,7 +891,7 @@ void MemoryController::update()
 			for (size_t j=0;j<NUM_BANKS;j++)
 			{
 				//TODO: Buffer print itself Thu 19 Jun 2014 08:56:18 AM CST
-				// bankBuffers[i][j].print();
+				bankBuffers[i][j].print();
 				PRINT("");
 			}
 		}
@@ -930,18 +948,16 @@ bool MemoryController::WillAcceptTransaction()
 bool MemoryController::addTransaction(Transaction *trans)
 {
 	// for extract trans info
-	const char* TransTypeNames[] = 
-	{
-		"READ",
-		"WRITE",
-		"DATA"
-	};
+	// const char* TransTypeNames[] = 
+	// {
+	// 	"READ",
+	// 	"WRITE",
+	// 	"DATA"
+	// };
 	if (WillAcceptTransaction())
 	{
 		trans->timeAdded = currentClockCycle;
 		transactionQueue.insertTrans(trans);
-		// 
-		trans_verify_out <<"0x"<<hex<<setiosflags(ios::uppercase)<< trans->address <<" " << TransTypeNames[trans->transactionType] <<"  " <<dec<< currentClockCycle <<endl;
 
 		//
 		if (trans->transactionType == DATA_READ)

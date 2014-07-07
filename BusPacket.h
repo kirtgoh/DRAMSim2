@@ -42,10 +42,12 @@ namespace DRAMSim
 enum BusPacketType
 {
 	//MOD: kgoh READ_B/WRITE_B/FETCH/RESTORE Thu 19 Jun 2014 06:19:46 PM CST
+#ifdef VICTIMBUFFER
 	FETCH,
 	RESTORE,	
 	READ_B,
 	WRITE_B,
+#endif
 	//END_MOD
 	READ,
 	READ_P,

@@ -94,6 +94,8 @@ buffer = ARGUMENTS.get('buffer',0)
 
 if int(buffer) == 1:
 	env.Append(CCFLAGS = '-DVICTIMBUFFER')
+else:
+	src_files.remove(File('Buffer.cpp'))
 
 # Include all the subdirectories into the CCFLAGS
 for dir in dirs:

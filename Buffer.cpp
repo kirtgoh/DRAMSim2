@@ -14,10 +14,21 @@ using namespace DRAMSim;
 
 Buffer::Buffer(ostream &dramsim_log_):
 	dramsim_log(dramsim_log_),
+	hitBlock(NULL),
 	nextRead(0),
-	nextWrite(0),
-	hitBlock(NULL)
+	nextWrite(0)
 {}
+
+//FIXME: Segment Fault, before Buffer init , deconstruct happens.
+/* Buffer::~Buffer()
+ * {
+ * 	for (size_t i = 0; i < numOfSets; i++) {
+ * 		Sets[i]->clear();
+ * 		delete Sets[i]; 
+ * 	}
+ * }
+ * 
+ */
 
 void Buffer::init()
 {
@@ -63,38 +74,98 @@ void Buffer::init()
 
 }
 
-//FIXME: Segment Fault, before Buffer init , deconstruct happens.
-/* Buffer::~Buffer()
- * {
- * 	for (size_t i = 0; i < numOfSets; i++) {
- * 		Sets[i]->clear();
- * 		delete Sets[i]; 
- * 	}
- * }
- * 
+/* commandQueue.pop() test if cmd is buffer hitted before popped
+ * if hitted, keey hit buffer used to test
  */
-
-unsigned Buffer::getTag(unsigned a)
+bool Buffer::isHit(BusPacket *packet)
 {
-	return BLOCK_TAG(a);
-}
+	// just need column address to mapping
+  	uint32_t tag = BLOCK_TAG(packet->column);
+  	uint32_t set = BLOCK_SET(packet->column);
 
-void BufferSet::insert(Block *blk)
-{
-	blk->way_next = way_head;
-	blk->way_prev = NULL;
+  	// current block used to detect
+  	Block *blk = NULL;		
 
-	// if set is empty, head and tail both point to this cacheline
-	// otherwise, only head pointer needs to change
-	if (!way_tail && !way_head) {
-		way_tail = blk;
-		way_head = blk;
-	} else {
-		way_head->way_prev = blk; 
-		way_head = blk;
+  	// linear search the way list
+  	for (blk = Sets[set]->way_head; blk; blk = blk->way_next)
+  	{
+  	  if (blk->row == packet->row && blk->tag == tag && (blk->state & BLOCK_VALID)
+			  && (packet->busPacketType == READ ||
+				  packet->busPacketType == READ_B ||
+				  packet->busPacketType == ACTIVATE ||
+				  packet->busPacketType == WRITE ||
+				  packet->busPacketType == WRITE_B)) {
+
+		  hitBlock = blk;
+  		  return true;
+	  }
 	}
 
-	lenOfList++;
+	hitBlock = NULL;
+	return false;
+}
+
+void Buffer::buffer_access(BusPacket *packet)
+{
+	// block address mapping
+  	uint32_t tag = BLOCK_TAG(packet->column);
+  	uint32_t set = BLOCK_SET(packet->column);
+
+	Block *repl = NULL;
+	switch(packet->busPacketType)
+	{
+		// select the appropriate block to replace, and re-link this entry to
+		// the appropriate place in the way list
+		case FETCH:
+			repl = Sets[set]->way_tail;
+			// (re)fill this block
+			if (repl->state & BLOCK_MODIFIED)
+			{
+				ERROR("not restore modified block, when a fetch issued");
+				exit(-1);
+			}
+			repl->row = packet->row;
+			repl->tag = tag;
+			repl->state = BLOCK_VALID;
+
+			Sets[set]->update_way_list(repl, policy);
+			break;
+		case RESTORE:
+			repl = Sets[set]->way_tail;
+			// restore this block
+			if (!(repl->state & BLOCK_MODIFIED))
+			{
+				ERROR("Set: " << set << "state: " << repl->state << " rwo: " << repl->row << " tag: " << repl->tag << "not modified block, when a restore issued");
+				exit(-1);
+			}
+			repl->state = BLOCK_VALID;
+			break;
+		case READ_B:
+			if (!hitBlock)
+			{
+				ERROR("there is no hit buffer, when a read_b issued");
+				exit(-1);
+			}
+
+			hits++;
+			// move this block to head of the way (MRU) list
+			Sets[set]->update_way_list(hitBlock, policy);
+			break;
+		case WRITE_B:
+			if (!hitBlock)
+			{
+				ERROR("there is no hit buffer, when a write_b issued");
+				exit(-1);
+			}
+			
+			hits++;
+			// handle write_b 
+ 	 		hitBlock->state |= BLOCK_MODIFIED;
+			Sets[set]->update_way_list(hitBlock, policy);
+			break;
+		default:
+			ERROR("unknown buffer access command!\n");
+	}
 }
 
 void BufferSet::update_way_list(Block *blk, BufferPolicy policy)
@@ -142,167 +213,49 @@ void BufferSet::update_way_list(Block *blk, BufferPolicy policy)
 			ERROR("policy error!\n");
 	}
 }
-/* commandQueue.pop() test if cmd is buffer hitted before popped
- * if hitted, keey hit buffer used to test
- */
-bool Buffer::isHit(BusPacket *packet)
+
+unsigned Buffer::getTag(unsigned a)
 {
-	// just need column address to mapping
-  	uint32_t tag = BLOCK_TAG(packet->column);
-  	uint32_t set = BLOCK_SET(packet->column);
-
-  	// current block used to detect
-  	Block *blk = NULL;		
-
-  	// linear search the way list
-  	for (blk = Sets[set]->way_head; blk; blk = blk->way_next)
-  	{
-  	  if (blk->row == packet->row && blk->tag == tag && (blk->state & BLOCK_VALID)
-			  && (packet->busPacketType == READ ||
-				  packet->busPacketType == READ_B ||
-				  packet->busPacketType == ACTIVATE ||
-				  packet->busPacketType == WRITE ||
-				  packet->busPacketType == WRITE_B)) {
-
-		  hitBlock = blk;
-  		  return true;
-	  }
-	}
-
-	hitBlock = NULL;
-	return false;
+	return BLOCK_TAG(a);
 }
 
-int Buffer::handle_hit(BusPacket *packet) 
+void BufferSet::insert(Block *blk)
 {
-	hits++;
+	blk->way_next = way_head;
+	blk->way_prev = NULL;
 
-  	uint32_t set = BLOCK_SET(packet->column);
-
-	if (hitBlock == NULL)
-		ERROR("hit buffer should not be empty!\n");
-	// update dirty status
-	if (packet->busPacketType == WRITE_B)
-		hitBlock->state |= BLOCK_MODIFIED;
-
-
-	// if LRU replacement and this is not the first element of list, reorder
-	if (hitBlock->way_prev && policy == LRU)
-	{
-	  // move this block to head of the way (MRU) list
-	  Sets[set]->update_way_list(hitBlock, LRU);
+	// if set is empty, head and tail both point to this block 
+	// otherwise, only head pointer needs to change
+	if (!way_tail && !way_head) {
+		way_tail = blk;
+		way_head = blk;
+	} else {
+		way_head->way_prev = blk; 
+		way_head = blk;
 	}
-	return 0;
 
+	lenOfList++;
 }
 
-int Buffer::handle_pre(BusPacket *packet)
+void Buffer::print()
 {
-
-  	uint32_t tag = BLOCK_TAG(packet->column);
-  	uint32_t set = BLOCK_SET(packet->column);
-
-	// select the appropriate block to replace, and re-link this entry to
-	// the appropriate place in the way list
-	Block *repl = NULL;
-
-	// find a block slot
-	switch (policy)
+	if (this == NULL)
 	{
-		case LRU:
-		case FIFO:
-			repl = this->Sets[set]->way_tail;
-			this->Sets[set]->update_way_list(repl, policy);
-			break;
-		case RANDOM:
-			// FIXME: do something 
-			break;
-		default:
-			ERROR("bogus replacement policy");
+		return;
 	}
-
-	// replace if neccessory
-	if (repl->state & BLOCK_VALID)
+	else
 	{
-		replacements++;
-
-		if (repl->state & BLOCK_MODIFIED)
+		for (size_t i=0; i < numOfSets; i++)
 		{
-		  // write back the cache block
-		  writebacks++;
+			for (Block *p = Sets[i]->way_tail; p; p = p->way_prev)
+				p->print();
+			PRINT("");
 		}
 	}
-	//FIXME: just row ?
-	//repl->tag = tag;
-	repl->row = packet->row;
-	repl->tag = tag;
-	repl->state = BLOCK_VALID;
-
-	//TODO: handle write ?
-/* 	if (packet->busPacketType == WRITE)
- * 		repl->state |= BLOCK_MODIFIED;
- */
-
-	return 0;
 }
 
-void Buffer::buffer_access(BusPacket *packet)
+void Block::print()
 {
-	// block address using
-  	uint32_t tag = BLOCK_TAG(packet->column);
-  	uint32_t set = BLOCK_SET(packet->column);
-
-	Block *repl = NULL;
-	switch(packet->busPacketType)
-	{
-		// select the appropriate block to replace, and re-link this entry to
-		// the appropriate place in the way list
-		case FETCH:
-			repl = Sets[set]->way_tail;
-			// (re)fill this block
-			repl->row = packet->row;
-			repl->tag = tag;
-			repl->state = BLOCK_VALID;
-
-			Sets[set]->update_way_list(repl, policy);
-			break;
-		case RESTORE:
-			break;
-		case READ_B:
-			if (!hitBlock)
-			{
-				ERROR("there is no hit buffer, when a read_b issued");
-				exit(-1);
-			}
-
-			hits++;
-			// move this block to head of the way (MRU) list
-			Sets[set]->update_way_list(hitBlock, policy);
-			break;
-		case WRITE_B:
-			break;
-		default:
-			ERROR("unknown buffer access command!\n");
-	}
-}
-// void Buffer::print()
-// {
-// 	if (this == NULL)
-// 	{
-// 		return;
-// 	}
-// 	else
-// 	{
-// 		for (size_t i=0; i < numOfSets; i++)
-// 		{
-// 			for (Block *p = Sets[i]->way_tail; p; p = p->way_prev)
-// 				p->print();
-// 			PRINT("");
-// 		}
-// 	}
-// }
-// void Block::print()
-// {
 // 	if (this == NULL)
 // 	{
 // 		return;
@@ -318,7 +271,10 @@ void Buffer::buffer_access(BusPacket *packet)
 // 			PRINTN("[invalid]");
 // 			break;
 // 		case BLOCK_MODIFIED:
-// 			PRINTN("[modified]");
+// 			PRINTN("[" << row << ":" << tag << "*]" );
+// 			break;
+// 		case BLOCK_VALID | BLOCK_MODIFIED:
+// 			PRINTN("[" << row << ":" << tag << "**]" );
 // 			break;
 // 		default:
 // 			ERROR("Trying to print unkown kind of block");
@@ -326,7 +282,8 @@ void Buffer::buffer_access(BusPacket *packet)
 //
 // 		}
 // 	}
-// }
+}
+
 Block* Buffer::get_repl(unsigned col)
 {
 

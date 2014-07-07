@@ -47,11 +47,9 @@
 #include "CSVWriter.h"
 #include "TransactionQueue.h"
 #include <map>
-#include <iomanip> //used to hex uppercase output
 
 #ifdef VICTIMBUFFER
 #include "Buffer.h"
-#define NAME(value) #value
 #endif
 
 using namespace std;

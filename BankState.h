@@ -72,6 +72,7 @@ public:
 
 	BusPacketType lastCommand;
 #ifdef VICTIMBUFFER
+	uint64_t nextRestore;
 	unsigned lastRow;
 	unsigned lastCol;
 #endif

@@ -81,7 +81,7 @@ void BusPacket::print(uint64_t currentClockCycle, bool dataStart)
 			break;
 #ifdef VICTIMBUFFER
 		case READ_B:
-			cmd_verify_out << currentClockCycle << ": read (0x"<<hex<<physicalAddress<<dec<<","<<rank<<","<<bank<<","<<row<<","<<column<<",2);"<<endl;
+			cmd_verify_out << currentClockCycle << ": read_b (0x"<<hex<<physicalAddress<<dec<<","<<rank<<","<<bank<<","<<row<<","<<column<<",2);"<<endl;
 			break;
 		case RESTORE:
 			cmd_verify_out << currentClockCycle << ": restore (0x"<<hex<<physicalAddress<<dec<<","<<rank<<","<<bank<<","<<row<<","<<column<<",2);"<<endl;
@@ -90,7 +90,7 @@ void BusPacket::print(uint64_t currentClockCycle, bool dataStart)
 			cmd_verify_out << currentClockCycle << ": fetch (0x"<<hex<<physicalAddress<<dec<<","<<rank<<","<<bank<<","<<row<<","<<column<<",2);"<<endl;
 			break;
 		case WRITE_B:
-			cmd_verify_out << currentClockCycle << ": write ("<<rank<<","<<bank<<","<<column<<",2, 0, 'h0);"<<endl;
+			cmd_verify_out << currentClockCycle << ": write_b (0x"<<hex<<physicalAddress<<dec<<","<<rank<<","<<bank<<","<<column<<",0 , 0, 'h0);"<<endl;
 			break;
 #endif
 		case WRITE:
@@ -157,6 +157,9 @@ void BusPacket::print()
 #ifdef VICTIMBUFFER
 		case READ_B:
 			PRINT("BP [READ_B] pa[0x"<<hex<<physicalAddress<<dec<<"] r["<<rank<<"] b["<<bank<<"] row["<<row<<"] col["<<column<<"]");
+			break;
+		case WRITE_B:
+			PRINT("BP [WRITE_B] pa[0x"<<hex<<physicalAddress<<dec<<"] r["<<rank<<"] b["<<bank<<"] row["<<row<<"] col["<<column<<"]");
 			break;
 		case RESTORE:
 			PRINT("BP [RSTORE] pa[0x"<<hex<<physicalAddress<<dec<<"] r["<<rank<<"] b["<<bank<<"] row["<<row<<"] col["<<column<<"]");

@@ -55,11 +55,6 @@ Rank::Rank(ostream &dramsim_log_) :
 	outgoingDataPacket = NULL;
 	dataCyclesLeft = 0;
 	currentClockCycle = 0;
-#ifdef VICTIMBUFFER
-	for (size_t j = 0; j < NUM_BANKS; j++)
-		bankBuffers[j].init();
-#endif
-
 
 #ifndef NO_STORAGE
 #endif
@@ -91,7 +86,7 @@ void Rank::receiveFromBus(BusPacket *packet)
 {
 	if (DEBUG_BUS)
 	{
-		PRINTN("("<< currentClockCycle <<")" <<" -- R" << this->id << " Receiving On Bus   : ");
+		DEBUGN(" -- R" << this->id << " Receiving On Bus   : ");
 		packet->print();
 	}
 	if (VERIFICATION_OUTPUT)
@@ -112,33 +107,35 @@ void Rank::receiveFromBus(BusPacket *packet)
 #ifdef VICTIMBUFFER
 	case RESTORE:
 		bankStates[packet->bank].lastCommand = RESTORE;
-		bankBuffers[packet->bank].buffer_access(packet);
+		bankBuffers[packet->bank].bufferAccess(packet);
+        // FIXME: nextRead/nextWrite update 
 		break;
 	case FETCH:
-		// (re)fill victim buffer
-		bankBuffers[packet->bank].buffer_access(packet);
+		bankBuffers[packet->bank].bufferAccess(packet);
 		bankBuffers[packet->bank].nextRead = max(currentClockCycle, bankStates[packet->bank].nextRead);
+		bankBuffers[packet->bank].nextWrite = max(currentClockCycle, bankStates[packet->bank].nextRead);
+
 		break;
 	case READ_B:
-		// if victim buffer hit, keep it's pointer
-		if (!bankBuffers[packet->bank].isHit(packet))
+		if (!bankBuffers[packet->bank].probe(packet->row, packet->column)
+                && currentClockCycle > bankBuffers[packet->bank].nextRead)
 		{
 			ERROR("CLOCK: "<< currentClockCycle <<" Accessed a READ while not hitted in bankBuffers\n");
 			exit(0);
 		}
 
 		//make sure a read_b is allowed
-		if (!(bankBuffers[packet->bank].hitBlock->state & BLOCK_VALID)||
-		        currentClockCycle < bankBuffers[packet->bank].nextRead ||
-		        packet->row != bankBuffers[packet->bank].hitBlock->row ||
-				bankBuffers[packet->bank].getTag(packet->column) != bankBuffers[packet->bank].hitBlock->tag)
-		{
-			packet->print();
-			ERROR("== Error - Rank " << id << " received a READ when not allowed");
-			exit(0);
-		}
-
-		bankBuffers[packet->bank].buffer_access(packet);
+		// if (!(bankBuffers[packet->bank].hitBlock->state & BLOCK_VALID)||
+		//         currentClockCycle < bankBuffers[packet->bank].nextRead ||
+		//         packet->row != bankBuffers[packet->bank].hitBlock->row ||
+		// 		bankBuffers[packet->bank].getTag(packet->column) != bankBuffers[packet->bank].hitBlock->tag)
+		// {
+		// 	packet->print();
+		// 	ERROR("== Error - Rank " << id << " received a READ when not allowed");
+		// 	exit(0);
+		// }
+        //
+		bankBuffers[packet->bank].bufferAccess(packet);
 
 		//update buffer and bank state table
 		for (size_t i=0;i<NUM_BANKS;i++)
@@ -159,23 +156,16 @@ void Rank::receiveFromBus(BusPacket *packet)
 		readReturnCountdown.push_back(RL);
 		break;
 	case WRITE_B:
-		if (!bankBuffers[packet->bank].isHit(packet))
+		//make sure WRITE_B allowed
+		if (!bankBuffers[packet->bank].probe(packet->row, packet->column)
+		        && currentClockCycle < bankBuffers[packet->bank].nextWrite)
 		{
-			ERROR("Received a WRITE_B while not hitted in bankBuffers\n");
-		}
-
-		//make sure a write_b is allowed
-		if (!(bankBuffers[packet->bank].hitBlock->state & BLOCK_VALID) ||
-		        currentClockCycle < bankBuffers[packet->bank].nextWrite ||
-		        packet->row != bankBuffers[packet->bank].hitBlock->row ||
-		        bankBuffers[packet->bank].getTag(packet->column) != bankBuffers[packet->bank].hitBlock->tag )
-		{
-			packet->print();
 			ERROR("== Error - Rank " << id << " received a WRITE_B when not allowed");
+			packet->print();
 			exit(0);
 		}
 
-		bankBuffers[packet->bank].buffer_access(packet);
+		bankBuffers[packet->bank].bufferAccess(packet);
 
 		//update buffer and bank state table
 		for (size_t i=0;i<NUM_BANKS;i++)
@@ -211,6 +201,10 @@ void Rank::receiveFromBus(BusPacket *packet)
 		{
 			bankStates[i].nextRead = max(bankStates[i].nextRead, currentClockCycle + max(tCCD, BL/2));
 			bankStates[i].nextWrite = max(bankStates[i].nextWrite, currentClockCycle + READ_TO_WRITE_DELAY);
+// #ifdef VICTIMBUFFER
+// 			bankBuffers[i].nextRead = max(bankStates[i].nextRead, currentClockCycle + max(tCCD, BL/2));
+// 			bankBuffers[i].nextWrite = max(bankStates[i].nextWrite, currentClockCycle + READ_TO_WRITE_DELAY);
+// #endif
 		}
 
 		//get the read data and put it in the storage which delays until the appropriate time (RL)
@@ -269,6 +263,10 @@ void Rank::receiveFromBus(BusPacket *packet)
 		{
 			bankStates[i].nextRead = max(bankStates[i].nextRead, currentClockCycle + WRITE_TO_READ_DELAY_B);
 			bankStates[i].nextWrite = max(bankStates[i].nextWrite, currentClockCycle + max(BL/2, tCCD));
+// #ifdef VICTIMBUFFER
+// 			bankBuffers[i].nextWrite = max(bankStates[i].nextWrite, currentClockCycle + max(tCCD, BL/2));
+// 			bankBuffers[i].nextRead = max(bankStates[i].nextRead, currentClockCycle + WRITE_TO_READ_DELAY_B);
+// #endif
 		}
 
 		//take note of where data is going when it arrives
@@ -337,6 +335,9 @@ void Rank::receiveFromBus(BusPacket *packet)
 				bankStates[i].nextActivate = max(bankStates[i].nextActivate, currentClockCycle + tRRD);
 			}
 		}
+#ifdef VICTUMBUFFER
+		bankStates[packet->bank].nextRestore= max(currentClockCycle + tRCD, bankStates[packet->bank].nextRestore);
+#endif
 		delete(packet); 
 		break;
 	case PRECHARGE:
@@ -408,16 +409,20 @@ void Rank::receiveFromBus(BusPacket *packet)
 	}
 
 #ifdef VICTIMBUFFER
-	if (DEBUG_BUFFERSTATE)
+	if (DEBUG_BUFFERSTATE
+            && (packet->busPacketType == FETCH
+                || packet->busPacketType == RESTORE
+                || packet->busPacketType == READ_B
+                || packet->busPacketType == WRITE_B))
 	{
-		PRINT("== Printing buffer states (According to RANK) CLOCK: " << currentClockCycle);
-		for (size_t j=0;j<NUM_BANKS;j++)
-		{
-			//TODO: Buffer print itself Thu 19 Jun 2014 08:56:18 AM CST
-			bankBuffers[j].print();
-			PRINT("");
-		}
-	}
+		DEBUG(endl << "== Printing buffer states (According to RANK)");
+        DEBUG(" = Rank" << this->id);
+        for (size_t j=0;j<NUM_BANKS;j++)
+        {
+            bankBuffers[j].print();
+            DEBUG("");
+        }
+    }
 #endif
 }
 
@@ -428,7 +433,6 @@ int Rank::getId() const
 
 void Rank::update()
 {
-
 	// An outgoing packet is one that is currently sending on the bus
 	// do the book keeping for the packet's time left on the bus
 	if (outgoingDataPacket != NULL)
@@ -473,9 +477,9 @@ void Rank::update()
 
 		if (DEBUG_BUS)
 		{
-			PRINTN(" -- R" << this->id << " Issuing On Data Bus : ");
+			DEBUGN(" -- R" << this->id << " Issuing On Data Bus : ");
 			outgoingDataPacket->print();
-			PRINT("");
+			DEBUG("");
 		}
 
 	}

@@ -63,7 +63,7 @@ else:
 env = base_env.Clone()
 env.Decider('MD5-timestamp')
 
-env['CXXFLAGS'] = '-DNO_STORAGE -Wall -DDEBUG_BUILD'
+env['CXXFLAGS'] = '-DNO_STORAGE -Wall -DDEBUG_BUILD -std=c++0x' # c++0x for unordered_map
 env['CPPPATH'] = []
 env['CPPPATH'].append(os.getcwd())
 
@@ -80,7 +80,7 @@ if int(debug) == 1:
 	env.Append(CXXFLAGS = ' -O0 -g')
 	# Enable tests
 	env.Append(CCFLAGS = '-DENABLE_TESTS')
-	dirs.append('tests')
+	# dirs.append('tests')
 	# Add gtest directory in CPPPATH
 	env['CPPPATH'].append(os.getcwd() + "/lib/gtest/include")
 	env['CPPPATH'].append(os.getcwd() + "/lib/gtest")
@@ -96,6 +96,9 @@ if int(buffer) == 1:
 	env.Append(CCFLAGS = '-DVICTIMBUFFER')
 else:
 	src_files.remove(File('Buffer.cpp'))
+	if int(debug) == 1:
+		if 'test' in dirs:
+			dirs.remove('tests')
 
 # Include all the subdirectories into the CCFLAGS
 for dir in dirs:

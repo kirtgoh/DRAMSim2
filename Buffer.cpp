@@ -1,293 +1,285 @@
 //=====================================================================================
-// Buffer.cpp - A Buffer Class Implementation 
+// Buffer.cpp
 //
 // Copyright (C) 2014 Kirt Goh <kirtgoh@gmail.com>
 //=====================================================================================
 
-#include "Buffer.h"
+#include <Buffer.h>
+#include <PrintMacros.h>
 
-using namespace std;
 using namespace DRAMSim;
 
-#define	BLOCK_TAG(addr)	((addr) >> shift_tag)
-#define BLOCK_SET(addr)	(((addr) >> shift_set) & mask_set)
+void Block::print(unsigned maskOfseg)
+{
+    unsigned shiftBits = dramsim_log2(maskOfseg + 1);
+    unsigned row, seg;
 
+    row = tag >> shiftBits;
+    seg = tag & maskOfseg;
+    switch(state)
+    {
+    case BLOCK_VALID:
+        DEBUGN("[" << row << ":" << seg << "]" );
+        // DEBUGN("[" << tag << "]" );
+        break;
+    case BLOCK_INVALID:
+        DEBUGN("[inva]");
+        break;
+    case BLOCK_MODIFIED:
+        DEBUGN("[" << row << ":" << seg << "*]" );
+        // DEBUGN("[" << tag << "*]" );
+        break;
+    case BLOCK_VALID | BLOCK_MODIFIED:
+        DEBUGN("[" << row << ":" << seg << "**]" );
+        // DEBUGN("[" << tag << "**]" );
+        break;
+    default:
+        ERROR("Trying to print unkown kind of block");
+        exit(-1);
+	}
+}
+
+//=====================================================================================
+// Buffer methods
+//
 Buffer::Buffer(ostream &dramsim_log_):
-	dramsim_log(dramsim_log_),
-	hitBlock(NULL),
-	nextRead(0),
-	nextWrite(0)
-{}
-
-//FIXME: Segment Fault, before Buffer init , deconstruct happens.
-/* Buffer::~Buffer()
- * {
- * 	for (size_t i = 0; i < numOfSets; i++) {
- * 		Sets[i]->clear();
- * 		delete Sets[i]; 
- * 	}
- * }
- * 
- */
-
-void Buffer::init()
+    dramsim_log(dramsim_log_),
+    nextRead(0),
+    nextWrite(0)
 {
-	
-	sizeOfBuffer = BUFFER_STORAGE;
-
-	// check system.ini parameters
-	// block size must be at least one datum large, i.e., 64 bytes
-	lenOfBlk = BUFFER_BLOCK_SIZE;
-	if (lenOfBlk < 64 || !isPowerOfTwo(lenOfBlk)) {
-		ERROR("Buffer Block size "<<lenOfBlk<<" config error");
+	// Block size must be at least one data bus burst length, i.e., 64 bytes
+	if (BUFFER_BLOCK_SIZE < 64 || !isPowerOfTwo(BUFFER_BLOCK_SIZE)) {
+		ERROR("Buffer Block size "<< BUFFER_BLOCK_SIZE <<" config error");
 		abort();
 	}
 
-	// ways of buffer must be a power of two
-	numOfWays = BUFFER_WAY_COUNT;
-	if (numOfWays <= 0 || !isPowerOfTwo(numOfWays)) {
-		ERROR("Buffer Ways number " << numOfWays << " config error");
+	// Ways of buffer must be a power of two
+	if (!isPowerOfTwo(BUFFER_WAY_COUNT)) {
+		ERROR("Buffer Ways number " << BUFFER_WAY_COUNT << " config error");
 		abort();
 	}
 
-	numOfSets = sizeOfBuffer / (numOfWays * lenOfBlk);
-	if (numOfSets <= 0 || !isPowerOfTwo(numOfSets)) {
-		ERROR("Buffer Sets number "<<numOfSets <<" config error");
+    size_t numOfsets = BUFFER_STORAGE / (BUFFER_WAY_COUNT * BUFFER_BLOCK_SIZE);
+
+	if (!isPowerOfTwo(numOfsets)) {
+		ERROR("Buffer Sets number "<< numOfsets <<" config error");
 		abort();
 	}
 
-	policy = bufferPolicy;
+    sets = vector<BufferSet>(numOfsets);
 
-	// allocate the Buffer structure
-	for (size_t i = 0; i < numOfSets; i++) {
-			BufferSet *set = new BufferSet(numOfWays);
-			Sets.push_back(set);
-	}
+    // Since the column address increments internally on bursts, the bottom n
+    // bits of the column (colLow) have to be zero in order to account
+    // for the total size of the transaction. These n bits should be shifted
+    // off the address and also subtracted from the total column width. 
+    //
+    // I am having a hard time explaining the reasoning here, but it comes down
+    // this: for a 64 byte transaction, the bottom 6 bits of the address must be 
+    // zero. These zero bits must be made up of the byte offset (3 bits) and also
+    // from the bottom bits of the column 
+    //
+    // For example: cowLowBits = log2(64bytes) - 3 bits = 3 bits
+    //
+    shift2set = dramsim_log2(BUFFER_BLOCK_SIZE / 64);
+    shift2seg = shift2set + dramsim_log2(numOfsets);
 
-	// BusPacket->column only have column high bits, 64B span.
-	shift_set = dramsim_log2(lenOfBlk / 64); 
-	shift_tag = shift_set + dramsim_log2(numOfSets);
-
-	mask_set = numOfSets - 1;
-	// NUM_COLS refer to 8 device chip bits and 8 depth bits
-	mask_tag = (1 << (dramsim_log2(NUM_COLS) - 3 - shift_tag)) -1;
-
+    maskOfset = numOfsets - 1;
+	maskOfseg = (1 << (dramsim_log2(NUM_COLS) - 3 - shift2seg)) -1;
 }
 
-/* commandQueue.pop() test if cmd is buffer hitted before popped
- * if hitted, keey hit buffer used to test
- */
-bool Buffer::isHit(BusPacket *packet)
+void Buffer::bufferAccess(BusPacket *packet)
 {
-	// just need column address to mapping
-  	uint32_t tag = BLOCK_TAG(packet->column);
-  	uint32_t set = BLOCK_SET(packet->column);
+  	unsigned tag, set;
+    decodeAddress(packet->row, packet->column, tag, set);
 
-  	// current block used to detect
-  	Block *blk = NULL;		
-
-  	// linear search the way list
-  	for (blk = Sets[set]->way_head; blk; blk = blk->way_next)
-  	{
-  	  if (blk->row == packet->row && blk->tag == tag && (blk->state & BLOCK_VALID)
-			  && (packet->busPacketType == READ ||
-				  packet->busPacketType == READ_B ||
-				  packet->busPacketType == ACTIVATE ||
-				  packet->busPacketType == WRITE ||
-				  packet->busPacketType == WRITE_B)) {
-
-		  hitBlock = blk;
-  		  return true;
-	  }
-	}
-
-	hitBlock = NULL;
-	return false;
-}
-
-void Buffer::buffer_access(BusPacket *packet)
-{
-	// block address mapping
-  	uint32_t tag = BLOCK_TAG(packet->column);
-  	uint32_t set = BLOCK_SET(packet->column);
-
-	Block *repl = NULL;
 	switch(packet->busPacketType)
 	{
-		// select the appropriate block to replace, and re-link this entry to
-		// the appropriate place in the way list
 		case FETCH:
-			repl = Sets[set]->way_tail;
-			// (re)fill this block
-			if (repl->state & BLOCK_MODIFIED)
-			{
-				ERROR("not restore modified block, when a fetch issued");
-				exit(-1);
-			}
-			repl->row = packet->row;
-			repl->tag = tag;
-			repl->state = BLOCK_VALID;
+            // make sure data not in there
+            if(sets[set].probe(tag))
+            {
+                ERROR("Fetch duplicated!");
+                exit(-1);
+            }
+            sets[set].fetch(tag);
+			break;
+        case READ_B:
+            // make sure data in there
+            if(!sets[set].probe(tag))
+            {
+                ERROR("buffer does not exits requesting data!");
+                exit(-1);
+            }
 
-			Sets[set]->update_way_list(repl, policy);
-			break;
-		case RESTORE:
-			repl = Sets[set]->way_tail;
-			// restore this block
-			if (!(repl->state & BLOCK_MODIFIED))
-			{
-				ERROR("Set: " << set << "state: " << repl->state << " rwo: " << repl->row << " tag: " << repl->tag << "not modified block, when a restore issued");
-				exit(-1);
-			}
-			repl->state = BLOCK_VALID;
-			break;
-		case READ_B:
-			if (!hitBlock)
-			{
-				ERROR("there is no hit buffer, when a read_b issued");
-				exit(-1);
-			}
-
-			hits++;
-			// move this block to head of the way (MRU) list
-			Sets[set]->update_way_list(hitBlock, policy);
-			break;
+            sets[set].read(tag);
+            break;
 		case WRITE_B:
-			if (!hitBlock)
+            // make sure data in there
+			if (!sets[set].probe(tag))
 			{
 				ERROR("there is no hit buffer, when a write_b issued");
 				exit(-1);
 			}
 			
-			hits++;
-			// handle write_b 
- 	 		hitBlock->state |= BLOCK_MODIFIED;
-			Sets[set]->update_way_list(hitBlock, policy);
+            sets[set].write(tag);
+			break;
+		case RESTORE:
+            // inner check restored block is in modified state
+            sets[set].restore(); 
 			break;
 		default:
-			ERROR("unknown buffer access command!\n");
+			ERROR("Unknown buffer access command!");
 	}
 }
 
-void BufferSet::update_way_list(Block *blk, BufferPolicy policy)
+bool Buffer::probe(unsigned row,  unsigned col)
 {
-	switch(policy) {
-		case FIFO:
-		case LRU:
-			// unlink entry from the way list
-			if (!blk->way_prev && !blk->way_next)
-			{
-			  // only one entry in list (direct-mapped), no action
-			  // Head/Tail order already
-			  return;
-			}
-			// else, more than one element in the list
-			else if (!blk->way_prev)
-			{
-			  // already there
-			  return;
-			}
-			else if (!blk->way_next)
-			{
-			  // end of list (and not front of list)
-			  way_tail = blk->way_prev;
-			  blk->way_prev->way_next = NULL;
-			}
-			else
-			{
-			  // middle of list (and not front or end of list)
-			  // DEBUG("update_way_list");
-			  blk->way_prev->way_next = blk->way_next;
-			  blk->way_next->way_prev = blk->way_prev;
-			}
+    unsigned tag, set;
+    decodeAddress(row, col, tag, set);
 
-			// link BLK back into the list
-			// link to the head of the way list
-			blk->way_next = way_head;
-			blk->way_prev = NULL;
-			way_head->way_prev = blk;
-			way_head = blk;
-			break;
-		case RANDOM:
-			break;
-		default:
-			ERROR("policy error!\n");
-	}
+    if (sets[set].probe(tag))
+        return true;
+
+    return false;
 }
 
-unsigned Buffer::getTag(unsigned a)
+bool Buffer::isFetchSafe(unsigned fetchRow, unsigned fetchCol, unsigned &restoreRow)
 {
-	return BLOCK_TAG(a);
-}
+    unsigned tag, set;
+    decodeAddress(fetchRow, fetchCol, tag, set);
 
-void BufferSet::insert(Block *blk)
-{
-	blk->way_next = way_head;
-	blk->way_prev = NULL;
+    // reuse tag to get restore row address 
+    if(!sets[set].isFetchSafe(tag))
+    {
+        unsigned shiftBits = dramsim_log2(maskOfseg + 1);
+        restoreRow = tag >> shiftBits;
 
-	// if set is empty, head and tail both point to this block 
-	// otherwise, only head pointer needs to change
-	if (!way_tail && !way_head) {
-		way_tail = blk;
-		way_head = blk;
-	} else {
-		way_head->way_prev = blk; 
-		way_head = blk;
-	}
+        return false;
+    }
 
-	lenOfList++;
+    return true;
 }
 
 void Buffer::print()
 {
-	if (this == NULL)
-	{
-		return;
-	}
-	else
-	{
-		for (size_t i=0; i < numOfSets; i++)
-		{
-			for (Block *p = Sets[i]->way_tail; p; p = p->way_prev)
-				p->print();
-			PRINT("");
-		}
-	}
+    for ( size_t i = 0; i < sets.size(); ++i )
+    {
+        sets[i].print(maskOfseg);
+    }
 }
 
-void Block::print()
+void Buffer::decodeAddress(unsigned row, unsigned col, unsigned &tag, unsigned &set)
 {
-// 	if (this == NULL)
-// 	{
-// 		return;
-// 	}
-// 	else
-// 	{
-// 		switch(state)
-// 		{
-// 		case BLOCK_VALID:
-// 			PRINTN("[" << row << ":" << tag << "]" );
-// 			break;
-// 		case BLOCK_INVALID:
-// 			PRINTN("[invalid]");
-// 			break;
-// 		case BLOCK_MODIFIED:
-// 			PRINTN("[" << row << ":" << tag << "*]" );
-// 			break;
-// 		case BLOCK_VALID | BLOCK_MODIFIED:
-// 			PRINTN("[" << row << ":" << tag << "**]" );
-// 			break;
-// 		default:
-// 			ERROR("Trying to print unkown kind of block");
-// 			exit(-1);
+    // segment address bits 
+    unsigned shiftBits = dramsim_log2(maskOfseg + 1);
+
+    // get segment address
+    unsigned seg = (col >> shift2seg);
+
+    // get set address
+    set = (col >> shift2set) & maskOfset;
+
+    // shift and add segment address
+    tag = (row << shiftBits) | seg;
+
+}
+
+//=====================================================================================
+// BufferSet methods
 //
-// 		}
-// 	}
-}
-
-Block* Buffer::get_repl(unsigned col)
+BufferSet::BufferSet():
+    bufferlist(BUFFER_WAY_COUNT,Block(-1))
 {
-
-  	uint32_t set = BLOCK_SET(col);
-	return Sets[set]->way_tail;
 }
 
+void BufferSet::read(unsigned tag)
+{
+    updateWayList(tag);
+}
+
+void BufferSet::write(unsigned tag)
+{
+    updateWayList(tag);
+    hash[tag]->state |= BLOCK_MODIFIED;
+}
+
+void BufferSet::fetch(unsigned tag)
+{
+    if (BUFFER_WAY_COUNT == bufferlist.size())
+    {
+        if (bufferlist.back().state & BLOCK_MODIFIED)
+        {
+            ERROR("Fetch unrestored block!");
+            exit(-1);
+        }
+
+        hash.erase(bufferlist.back().tag);
+        bufferlist.pop_back();
+    }
+    bufferlist.push_front(Block(tag));
+    hash[tag] = bufferlist.begin();
+    hash[tag]->state = BLOCK_VALID;
+}
+
+void BufferSet::restore()
+{
+    if (!(bufferlist.back().state & BLOCK_MODIFIED))
+    {
+        ERROR("Restore unmodified block!");
+        exit(-1);
+    }
+
+    bufferlist.back().state = BLOCK_VALID;
+}
+
+bool BufferSet::isFetchSafe(unsigned &tag)
+{
+    if (bufferlist.back().state & BLOCK_MODIFIED)
+    {
+        tag = bufferlist.back().tag;
+        return false;
+    }
+
+    return true;
+}
+
+bool BufferSet::probe(unsigned tag)
+{
+    if (hash.find(tag) != hash.end())
+    {
+        return true;
+    }
+
+    return false;
+}
+
+void BufferSet::print(unsigned maskOfseg)
+{
+    // print bufferlist
+    list<Block>::iterator itr = bufferlist.begin();
+    while(itr != bufferlist.end())
+    {
+        itr->print(maskOfseg);
+        itr++;
+	    DEBUGN(" ");
+    }
+	DEBUG("");
+}
+
+void BufferSet::updateWayList(uint32_t tag)
+{
+    switch(bufferPolicy)
+    {
+        case FIFO:
+        case LRU:
+            bufferlist.splice(bufferlist.begin(), bufferlist, hash[tag]);
+            break;
+        case RANDOM:
+            // TODO: do something 
+            break;
+        default:
+            ERROR("Unknown Buffer policy!");
+    }
+
+    hash[tag] = bufferlist.begin();
+}

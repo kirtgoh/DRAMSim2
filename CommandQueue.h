@@ -66,11 +66,11 @@ public:
 	typedef vector<BusPacket2D> BusPacket3D;
 
 	//functions
-#ifdef VICTIMBUFFER
-	CommandQueue(vector< vector<BankState> > &states, vector< vector<Buffer> > &buffers, ostream &dramsim_log);
-	bool isIssuableVRB(BusPacket *busPacket);
-#else
+#ifndef VICTIMBUFFER
 	CommandQueue(vector< vector<BankState> > &states, ostream &dramsim_log);
+#else
+	CommandQueue(vector< vector<BankState> > &states, vector< vector<Buffer> > &buffers, ostream &dramsim_log);
+	bool isIssuable2Buffer(BusPacket *busPacket);
 #endif
 	virtual ~CommandQueue(); 
 
@@ -82,7 +82,7 @@ public:
 	void needRefresh(unsigned rank);
 	void print();
 #ifdef VICTIMBUFFER
-	void needRestore(unsigned rank, unsigned bank, unsigned row, Block *blk);
+	void needRestore(unsigned rank, unsigned bank, unsigned row, unsigned col);
 #endif
 	void update(); //SimulatorObject requirement
 	vector<BusPacket *> &getCommandQueue(unsigned rank, unsigned bank);
@@ -99,6 +99,16 @@ public:
 private:
 	void nextRankAndBank(unsigned &rank, unsigned &bank);
 	//fields
+#ifdef VICTIMBUFFER
+	unsigned restoreRank;
+	unsigned restoreBank;
+    unsigned restoreRow;
+
+    unsigned fetchRow;
+    unsigned fetchCol;
+
+	bool restoreWaiting;
+#endif
 	unsigned nextBank;
 	unsigned nextRank;
 
@@ -108,14 +118,6 @@ private:
 	unsigned refreshRank;
 	bool refreshWaiting;
 
-#ifdef VICTIMBUFFER
-	unsigned fetchRank;
-	unsigned fetchBank;
-	unsigned fetchRow;
-
-	Block *restoreBlock;
-	bool restoreWaiting;
-#endif
 
 	vector< vector<unsigned> > tFAWCountdown;
 	vector< vector<unsigned> > rowAccessCounters;

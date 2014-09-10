@@ -1,154 +1,134 @@
-#ifndef BUFFER_H
-#define BUFFER_H
+//=====================================================================================
+// Buffer.h - A Victim Buffer implementation based on unordered_map
+//
+// Copyright (C) 2014 Kirt Goh <kirtgoh@gmail.com>
+//=====================================================================================
 
-#include "SystemConfiguration.h"
-#include "BusPacket.h"
+#ifndef VICTIM_BUFFER_H
+#define VICTIM_BUFFER_H
+
+#include <list>
+#include <vector>
+#include <unordered_map>
+#include <SystemConfiguration.h>    // enum BufferPolicy
+#include <BusPacket.h>
 
 using namespace std;
 
 namespace DRAMSim
 {
 
-enum CurrentBlockState
+enum BlockState
 {
 	BLOCK_INVALID = 0,
 	BLOCK_VALID,
 	BLOCK_MODIFIED,
 };
 
-typedef struct _Block	// per-block size is N times of cacheline
-{
-	struct _Block *way_next;
-	struct _Block *way_prev;
+struct Block {
+    int tag;    // row and column segment address
+    int state;
 
-	uint32_t row;
-	uint32_t tag;
-	unsigned state;
-
-	void print();
-
-} Block;
-
-class BufferSet
-{
-	public:
-		BufferSet(size_t n)
-			:way_head(NULL),way_tail(NULL),lenOfList(0)
-		{
-			Block *p = NULL;
-			for (size_t i = 0; i < n; i++)
-			{
-				//p = (Buffer *)malloc(sizeof(Buffer));
-				p = new Block;
-				p->row = 0;
-				p->tag = 0;
-				p->state = BLOCK_INVALID;
-
-				insert(p);
-			}
-		}
-
-		BufferSet()
-			:way_head(NULL),way_tail(NULL),lenOfList(0)
-		{}
-
-		~BufferSet() { clear(); }
-
-
-		int size() {
-			return lenOfList;
-		}
-
-		void insert(Block *blk);
-		void update_way_list(Block *blk, BufferPolicy policy);
-
-		void clear()
-		{
-			Block *prev;
-			for (Block *p = way_tail; p; p = prev)
-			{
-				prev = p->way_prev;
-				delete p;
-			}
-			way_head = way_tail = NULL;
-		}
-
-		Block *way_head;
-		Block *way_tail;
-	private:
-		size_t lenOfList;
+    Block(int t): tag(t), state(BLOCK_INVALID) {}
+    void print(unsigned maskOfseg);
 };
 
+class BufferSet;
+
+//=====================================================================================
+// Buffer class definition
+//
 class Buffer
 {
-	ostream &dramsim_log;
+    ostream &dramsim_log;
 public:
-	//Functions
- 	Buffer(ostream &dramsim_log_);
-	void init();
+    // Initial parameters passed from system.ini file
+    Buffer(ostream &dramsim_log_);
 
-//	~Buffer();
-	bool isHit(BusPacket *packet);
-	void buffer_access(BusPacket *p);
+    // bufferAccess (packet) - handle FETCH/RESTORE/READ_B/WRITE_B protocol
+    void bufferAccess(BusPacket *packet);
 
-	// return Size of Buffer in bytes
-	int get_size() const {
-		return sizeOfBuffer;
-	}
+    // probe (row, col) - Probe the tag address of the packet if the data exists
+    // in the block, otherwise return false.
+    bool probe(unsigned row, unsigned col);
 
-	int get_way_count() const {
-		return numOfWays;
-	}
+    size_t size() const { return sets.size();}
+    size_t storage() const { return BUFFER_STORAGE;}
 
-	int get_set_count() const {
-		return numOfSets;
-	}
+    // isFetchSafe (fetchRow, fetchCol, restoreRow) - FETCH iussing safely
+    // check. If back of buffer block is Modified, get its row for RESTORE,
+    // otherwise return ture.
+    bool isFetchSafe(unsigned fetchRow, unsigned fetchCol, unsigned &restoreRow);
 
-	int get_block_size() const {
-		return lenOfBlk;
-	}
-	unsigned getTag(unsigned);
+    void print();
 
-	Block* get_repl(unsigned col);
-	void print();
+    // Fields 
+    uint64_t nextRead;
+    uint64_t nextWrite;
 
-	//Fields
-	Block *hitBlock;
-	vector< BufferSet *> Sets;
+private:
+    // decodeAddress (row, col, &tag, &set) - pick set and tag address of buffer
+    // block with row and col address of bank
+    void decodeAddress(unsigned row, unsigned col, unsigned &tag, unsigned &set);
 
-	// parameters of this Buffer 
-	unsigned lenOfBlk;
-	unsigned numOfWays;
-	unsigned numOfSets;
-	unsigned sizeOfBuffer;
+    // buffer data
+    vector<BufferSet> sets;
 
-	// used to decode request's set and tag address
-	unsigned shift_set;
-	unsigned shift_tag;
+    // for buffer address mapping 
+    uint32_t shift2seg;
+    uint32_t shift2set;
 
-	uint32_t mask_set;			// use after shift
-	uint32_t mask_tag;			// use after shift
-
-
-	// FIFO, LRU or RANDOM
-	BufferPolicy policy;
-
-	// Buffer stats 
-	uint64_t hits;				// total number of hits
-	uint64_t misses;			// total number of misses
-	uint64_t replacements;		// total number of replacements at misses
-	uint64_t writebacks;		// total number of writebacks at misses
-
-	//
-	uint64_t nextRead;
-	uint64_t nextWrite;
+    uint32_t maskOfset;
+    uint32_t maskOfseg;
 };
 
+typedef list<Block>::iterator itBlock;
 
+//=====================================================================================
+// BufferSet class definition
+//
+class BufferSet
+{
+public:
+    // Initial parameters passed from system.ini file
+    BufferSet();
 
+    // read (tag) - Read the value (not actually read) of the tag if the tag 
+    // exists in the block, and update its location according buffer policy.
+    void read(unsigned tag);
 
+    // write (tag) - Write data from row buffer addressed by tag (row and
+    // segments) to buffer block, and update its location according policy.
+    void write(unsigned tag);
 
+    // fetch (tag) - Fetch data from row to buffer block. Initialize to
+    // BLOCK_VALID state.
+    void fetch(unsigned tag);
+
+    // restore () - Restore block back to bank row.
+    void restore();
+
+    // isFetchSafe (tag) - FETCH iussing safely check. If back of buffer block
+    // is Modified, get its tag for restoreRow, otherwise return ture.
+    bool isFetchSafe(unsigned &tag);
+
+    // probe (tag) - Check if the data of the tag exists in the Buffer,
+    // otherwise return false;
+    bool probe(unsigned tag);
+
+    size_t size() const { return BUFFER_WAY_COUNT;}
+
+    void print(unsigned maskOfseg);
+
+private:
+    // updateWayList (tag) - Update the block position of tag in the buffer list
+    // according buffer policy.
+    void updateWayList(unsigned tag);
+
+    list<Block> bufferlist;
+    unordered_map<int , list<Block>::iterator> hash;
+};
 
 }
 
-#endif
+#endif /* VICTIM_BUFFER_H */

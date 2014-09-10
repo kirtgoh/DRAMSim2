@@ -123,16 +123,8 @@ MemoryController::MemoryController(MemorySystem *parent, CSVWriter &csvOut_, ost
 	}
 
 #ifdef VICTIMBUFFER
-//	bankBuffers.reserve(NUM_RANKS);
-	for (size_t i=0; i<NUM_RANKS; i++)
-		for (size_t j=0; j<NUM_BANKS; j++)
-	{
-		bankBuffers[i][j].init();
-	}
-
 	DEBUG("===== Buffer  =====");
-	DEBUG(" BUFFER_STORAGE : "<< BUFFER_STORAGE << "B | "<<bankBuffers[0][0].numOfSets <<" Sets| "<< BUFFER_WAY_COUNT<<" Ways| " << "BLOCK_SIZE : " << BUFFER_BLOCK_SIZE<< "B");
-
+	DEBUG(" BUFFER_STORAGE : "<< BUFFER_STORAGE << "B | "<<bankBuffers[0][0].size()<<" Sets| "<< BUFFER_WAY_COUNT<<" Ways| " << "BLOCK_SIZE : " << BUFFER_BLOCK_SIZE<< "B");
 #endif
 }
 
@@ -152,7 +144,7 @@ void MemoryController::receiveFromBus(BusPacket *bpacket)
 
 	if (DEBUG_BUS)
 	{
-		PRINTN(" -- MC Receiving From Data Bus : ");
+		DEBUGN(" -- MC Receiving From Data Bus : ");
 		bpacket->print();
 	}
 
@@ -185,7 +177,7 @@ void MemoryController::attachRanks(vector<Rank *> *ranks)
 void MemoryController::update()
 {
 
-	//PRINT(" ------------------------- [" << currentClockCycle << "] -------------------------");
+	// DEBUG(endl << " ------------------------- CLOCK: " << currentClockCycle << " -------------------------");
 
 	//update bank states
 	for (size_t i=0;i<NUM_RANKS;i++)
@@ -214,6 +206,7 @@ void MemoryController::update()
 					case PRECHARGE:
 						bankStates[i][j].currentBankState = Idle;
 						break;
+					// FIXME: FETCH and RESTORE need state changing ?
 					default:
 						break;
 					}
@@ -269,14 +262,14 @@ void MemoryController::update()
 			//send to bus and print debug stuff
 			if (DEBUG_BUS)
 			{
-				PRINTN("(" << currentClockCycle <<")" << " -- MC Issuing On DAT Bus : ");
+				DEBUGN(" -- MC Issuing On DAT Bus : ");
 				writeDataToSend[0]->print();
 			}
 
 			// queue up the packet to be sent
 			if (outgoingDataPacket != NULL)
 			{
-				ERROR("== Error - Data Bus Collision");
+				ERROR("== Error - Data Bus Collision : ");
 				exit(-1);
 			}
 
@@ -315,7 +308,11 @@ void MemoryController::update()
 	//function returns true if there is something valid in poppedBusPacket
 	if (commandQueue.pop(&poppedBusPacket))
 	{
+#ifdef VICTIMBUFFER
+		if (poppedBusPacket->busPacketType == WRITE || poppedBusPacket->busPacketType == WRITE_P || poppedBusPacket->busPacketType == WRITE_B)
+#else
 		if (poppedBusPacket->busPacketType == WRITE || poppedBusPacket->busPacketType == WRITE_P)
+#endif
 		{
 
 			writeDataToSend.push_back(new BusPacket(DATA, poppedBusPacket->physicalAddress, poppedBusPacket->column,
@@ -331,9 +328,9 @@ void MemoryController::update()
 		unsigned rank = poppedBusPacket->rank;
 		unsigned bank = poppedBusPacket->bank;
 #ifdef VICTIMBUFFER
-		// cuz precharege bus packet does not contain column info, add here 
-		if (poppedBusPacket->busPacketType == READ || 
-				poppedBusPacket->busPacketType == WRITE) {
+		// keep last access bank row for fetch
+		if (poppedBusPacket->busPacketType == READ || poppedBusPacket->busPacketType == WRITE)
+        {
 			bankStates[rank][bank].lastRow = poppedBusPacket->row;
 			bankStates[rank][bank].lastCol = poppedBusPacket->column;
 		}
@@ -377,19 +374,24 @@ void MemoryController::update()
 								bankStates[i][j].nextRead = max(currentClockCycle + BL/2 + tRTRS, bankStates[i][j].nextRead);
 								bankStates[i][j].nextWrite = max(currentClockCycle + READ_TO_WRITE_DELAY,
 										bankStates[i][j].nextWrite);
-#ifdef VICTIMBUFFER
-								bankBuffers[i][j].nextRead = max(currentClockCycle + BL/2 + tRTRS, bankBuffers[i][j].nextRead);
-#endif
 							}
+#ifdef VICTIMBUFFER
+                            // data bus shared between Victim Buffer and Row Buffer
+                            bankBuffers[i][j].nextRead = max(currentClockCycle + BL/2 + tRTRS, bankBuffers[i][j].nextRead);
+                            bankBuffers[i][j].nextWrite = max(currentClockCycle + READ_TO_WRITE_DELAY,
+                                    bankBuffers[i][j].nextWrite);
+#endif
 						}
 						else
 						{
 							bankStates[i][j].nextRead = max(currentClockCycle + max(tCCD, BL/2), bankStates[i][j].nextRead);
-#ifdef VICTIMBUFFER
-							bankBuffers[i][j].nextRead = max(currentClockCycle + max(tCCD, BL/2), bankBuffers[i][j].nextRead);
-#endif
 							bankStates[i][j].nextWrite = max(currentClockCycle + READ_TO_WRITE_DELAY,
 									bankStates[i][j].nextWrite);
+#ifdef VICTIMBUFFER
+							bankBuffers[i][j].nextRead = max(currentClockCycle + max(tCCD, BL/2), bankBuffers[i][j].nextRead);
+							bankBuffers[i][j].nextWrite = max(currentClockCycle + READ_TO_WRITE_DELAY,
+									bankBuffers[i][j].nextWrite);
+#endif
 						}
 					}
 				}
@@ -440,12 +442,22 @@ void MemoryController::update()
 								bankStates[i][j].nextRead = max(currentClockCycle + WRITE_TO_READ_DELAY_R,
 										bankStates[i][j].nextRead);
 							}
+#ifdef VICTIMBUFFER
+                            bankBuffers[i][j].nextWrite = max(currentClockCycle + BL/2 + tRTRS, bankBuffers[i][j].nextWrite);
+                            bankBuffers[i][j].nextRead = max(currentClockCycle + WRITE_TO_READ_DELAY_R,
+                                    bankBuffers[i][j].nextRead);
+#endif
 						}
 						else
 						{
 							bankStates[i][j].nextWrite = max(currentClockCycle + max(BL/2, tCCD), bankStates[i][j].nextWrite);
 							bankStates[i][j].nextRead = max(currentClockCycle + WRITE_TO_READ_DELAY_B,
 									bankStates[i][j].nextRead);
+#ifdef VICTIMBUFFER
+							bankBuffers[i][j].nextWrite = max(currentClockCycle + max(BL/2, tCCD), bankBuffers[i][j].nextWrite);
+							bankBuffers[i][j].nextRead = max(currentClockCycle + WRITE_TO_READ_DELAY_B,
+									bankBuffers[i][j].nextRead);
+#endif
 						}
 					}
 				}
@@ -474,7 +486,7 @@ void MemoryController::update()
 				bankStates[rank][bank].nextActivate = max(currentClockCycle + tRC, bankStates[rank][bank].nextActivate);
 				bankStates[rank][bank].nextPrecharge = max(currentClockCycle + tRAS, bankStates[rank][bank].nextPrecharge);
 #ifdef VICTIMBUFFER
-				// used nextRead have some problem, when other bank read or write, nextRead may bigger
+                // FIXME: used nextRead have some problem, when other bank read or write, nextRead may bigger
 				bankStates[rank][bank].nextRestore= max(currentClockCycle + tRCD, bankStates[rank][bank].nextRestore);
 #endif
 
@@ -498,25 +510,6 @@ void MemoryController::update()
 				bankStates[rank][bank].stateChangeCountdown = tRP;
 				bankStates[rank][bank].nextActivate = max(currentClockCycle + tRP, bankStates[rank][bank].nextActivate);
 
-#ifdef VICTIMBUFFER
-				// // fill or replace victim buffer
-				// if (poppedBusPacket->row != bankStates[rank][bank].lastRow) {
-				// //	ERROR("Last Bank Row access is different with Precharging Row!\n");
-				// 	break;
-				// }
-                //
-				// poppedBusPacket->row = bankStates[rank][bank].lastRow;
-				// poppedBusPacket->column = bankStates[rank][bank].lastCol;
-                //
-				// bankBuffers[rank][bank].handle_pre(poppedBusPacket);
-                //
-				// // FIXME: initial here ?
-				// bankBuffers[rank][bank].nextRead = max(currentClockCycle + BL/2, bankBuffers[rank][bank].nextRead);
-				// bankBuffers[rank][bank].nextRead = max(bankStates[rank][bank].nextRead, bankBuffers[rank][bank].nextRead);
-                //
-				// bankBuffers[rank][bank].nextWrite= max(currentClockCycle + BL/2, bankBuffers[rank][bank].nextWrite);
-#endif
-
 				break;
 			case REFRESH:
 				//add energy to account for total
@@ -538,14 +531,19 @@ void MemoryController::update()
 #ifdef VICTIMBUFFER
 			case FETCH:
 				bankStates[rank][bank].lastCommand = FETCH;
-				// (re)fill victim buffer
-				bankBuffers[rank][bank].buffer_access(poppedBusPacket);
+
+				// fetch segments of row to victim buffer
+				bankBuffers[rank][bank].bufferAccess(poppedBusPacket);
+
 				// avoid data bus collpase with row buffer access
-				bankBuffers[rank][bank].nextRead = max(currentClockCycle, bankStates[rank][bank].nextRead);
+				// FIXME: tAPD is 2 cycles
+				bankBuffers[rank][bank].nextRead = max(currentClockCycle + 2, bankStates[rank][bank].nextRead);
+				bankBuffers[rank][bank].nextWrite = max(currentClockCycle + 2, bankStates[rank][bank].nextWrite);
+
 				break;
 			case READ_B:
-				bankBuffers[rank][bank].buffer_access(poppedBusPacket);
-				// victim buffer and row buffer share databus
+				bankBuffers[rank][bank].bufferAccess(poppedBusPacket);
+
 				for (size_t i=0;i<NUM_RANKS;i++)
 				{
 					for (size_t j=0;j<NUM_BANKS;j++)
@@ -555,6 +553,7 @@ void MemoryController::update()
 							bankBuffers[i][j].nextRead = max(currentClockCycle + BL/2 + tRTRS, bankBuffers[i][j].nextRead);
 							bankBuffers[i][j].nextWrite = max(currentClockCycle + READ_TO_WRITE_DELAY,
 									bankBuffers[i][j].nextWrite);
+
 
 							bankStates[i][j].nextRead = max(currentClockCycle + BL/2 + tRTRS, bankStates[i][j].nextRead);
 							bankStates[i][j].nextWrite = max(currentClockCycle + READ_TO_WRITE_DELAY,
@@ -566,6 +565,7 @@ void MemoryController::update()
 							bankBuffers[i][j].nextWrite = max(currentClockCycle + READ_TO_WRITE_DELAY,
 									bankBuffers[i][j].nextWrite);
 
+
 							bankStates[i][j].nextRead = max(currentClockCycle +BL/2, bankStates[i][j].nextRead);
 							bankStates[i][j].nextWrite = max(currentClockCycle + READ_TO_WRITE_DELAY,
 									bankStates[i][j].nextWrite);
@@ -575,7 +575,7 @@ void MemoryController::update()
 
 				break;
 			case WRITE_B:
-				bankBuffers[rank][bank].buffer_access(poppedBusPacket);
+				bankBuffers[rank][bank].bufferAccess(poppedBusPacket);
 
 				for (size_t i=0;i<NUM_RANKS;i++)
 				{
@@ -606,8 +606,12 @@ void MemoryController::update()
 
 				break;
 			case RESTORE:
-				bankBuffers[rank][bank].buffer_access(poppedBusPacket);
+                // FIXME: nextRestore's timing is right ?
 				bankStates[rank][bank].lastCommand = RESTORE;
+				bankBuffers[rank][bank].bufferAccess(poppedBusPacket);
+
+				bankBuffers[rank][bank].nextRead = max(currentClockCycle + 2, bankStates[rank][bank].nextRead);
+				bankBuffers[rank][bank].nextWrite = max(currentClockCycle + 2, bankStates[rank][bank].nextWrite);
 				break;
 #endif
 			default:
@@ -618,7 +622,7 @@ void MemoryController::update()
 		//issue on bus and print debug
 		if (DEBUG_BUS)
 		{
-			PRINTN("(" << currentClockCycle <<")"<< " -- MC Issuing On CMD Bus : ");
+			DEBUGN(" -- MC Issuing On CMD Bus : ");
 			poppedBusPacket->print();
 		}
 
@@ -631,6 +635,25 @@ void MemoryController::update()
 		outgoingCmdPacket = poppedBusPacket;
 		cmdCyclesLeft = tCMD;
 
+#ifdef VICTIMBUFFER
+    if (DEBUG_BUFFERSTATE
+            && (poppedBusPacket->busPacketType == FETCH
+                || poppedBusPacket->busPacketType == RESTORE
+                || poppedBusPacket->busPacketType == READ_B
+                || poppedBusPacket->busPacketType == WRITE_B))
+    {
+		DEBUG(endl << "== Printing buffer states (According to MC)");
+		for (size_t i=0;i<NUM_RANKS;i++)
+        {
+            DEBUG(" = Rank" << i);
+			for (size_t j=0;j<NUM_BANKS;j++)
+            {
+                bankBuffers[i][j].print();
+                DEBUG("");
+            }
+        }
+    }
+#endif
 	}
 
 	if (transactionQueue.size())
@@ -828,7 +851,7 @@ void MemoryController::update()
 	{
 		if (DEBUG_BUS)
 		{
-			PRINTN(" -- MC Issuing to CPU bus : " << *returnTransaction[0]);
+			DEBUGN(" -- MC Issuing to CPU bus : " << *returnTransaction[0]);
 		}
 		totalTransactions++;
 
@@ -882,57 +905,43 @@ void MemoryController::update()
 		}
 	}
 
-#ifdef VICTIMBUFFER
-	if (DEBUG_BUFFERSTATE)
+	if (DEBUG_CMD_Q)
 	{
-		PRINT("== Printing buffer states (According to MC) CLOCK: " << currentClockCycle);
-		for (size_t i=0;i<NUM_RANKS;i++)
-		{
-			for (size_t j=0;j<NUM_BANKS;j++)
-			{
-				//TODO: Buffer print itself Thu 19 Jun 2014 08:56:18 AM CST
-				bankBuffers[i][j].print();
-				PRINT("");
-			}
-		}
+		commandQueue.print();
 	}
-#endif
+
 	if (DEBUG_BANKSTATE)
 	{
 		//TODO: move this to BankState.cpp
-		PRINT("== Printing bank states (According to MC)");
+		DEBUG(endl << "== Printing bank states (According to MC)");
 		for (size_t i=0;i<NUM_RANKS;i++)
 		{
 			for (size_t j=0;j<NUM_BANKS;j++)
 			{
 				if (bankStates[i][j].currentBankState == RowActive)
 				{
-					PRINTN("[" << bankStates[i][j].openRowAddress << "] ");
+					DEBUGN("[" << bankStates[i][j].openRowAddress << "] ");
 				}
 				else if (bankStates[i][j].currentBankState == Idle)
 				{
-					PRINTN("[idle] ");
+					DEBUGN("[idle] ");
 				}
 				else if (bankStates[i][j].currentBankState == Precharging)
 				{
-					PRINTN("[pre] ");
+					DEBUGN("[pre] ");
 				}
 				else if (bankStates[i][j].currentBankState == Refreshing)
 				{
-					PRINTN("[ref] ");
+					DEBUGN("[ref] ");
 				}
 				else if (bankStates[i][j].currentBankState == PowerDown)
 				{
-					PRINTN("[lowp] ");
+					DEBUGN("[lowp] ");
 				}
 			}
-			PRINT(""); // effectively just cout<<endl;
+			DEBUGN(""); // effectively just cout<<endl;
 		}
-	}
-
-	if (DEBUG_CMD_Q)
-	{
-		commandQueue.print();
+		DEBUG("");
 	}
 
 	commandQueue.step();

@@ -1,0 +1,30 @@
+"""
+	DRAMSim-specific functions
+"""
+import tempfile
+import os.path
+from Graphs import *
+
+
+def vis_file_to_datatable(filename):
+	if not os.path.exists(filename):
+		print "ERROR: vis file %s not found"%filename
+		exit()
+	
+	output = tempfile.NamedTemporaryFile(delete=False)
+	fp = open(filename, "r")
+	line = 'blah'; 
+	startCopying = False
+	while line: 
+		line = fp.readline(); 
+		if line.startswith("!!EPOCH_DATA"):
+			startCopying = True; 
+			continue
+		elif line.endswith("!!HISTOGRAM_DATA\n"):
+			break;
+		if startCopying: 
+			output.write(line)
+	print "input=%s output=%s"%(filename,output.name)
+	output.close()
+	return DataTable(output.name)
+

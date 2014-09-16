@@ -1,0 +1,162 @@
+#!/usr/bin/python
+# Filename: calc_bandwidth.py
+
+import os
+import tempfile
+import math
+import re
+from Graphs import *
+
+from optparse import OptionParser, OptionGroup
+''' 
+# should use another methods open *.vis 
+f = file('single_core_smt2_threads-64.vis', 'r') # open for 'w'riting
+ # if no mode is specified, 'r'ead mode is assumed by default
+
+bandwidth = 0.0 
+
+begin = 64
+end = 17589
+
+for line in f.readlines()[begin:end]:
+    strdata = line.split(',')[-2]
+    bandwidth += float(strdata) 
+print bandwidth / (end - begin)
+f.close()
+'''
+def calc_average_value(dt, y_col_name):
+	if dt.contains_column(y_col_name):
+		data = dt.get_data(y_col_name)
+		print y_col_name
+		return sum(data) / len(data)
+
+# calc avearge ,should note -nan
+def vis_file_to_datatable(filename):
+	if not os.path.exists(filename):
+		print "ERROR: vis file %s not found" % filename
+		exit()
+
+	output = tempfile.NamedTemporaryFile(delete=False)
+	fp = open(filename, "r")
+	line = 'deadbeef';
+	startCopying = False
+	while line:
+		line = fp.readline();
+		if line.startswith("!!EPOCH_DATA"):
+			startCopying = True;
+#			print "yes find !!EPOCH_DATA"
+			continue
+		elif line.endswith("!!HISTOGRAM_DATA\n"):
+#			print "yes find !!HISTOGRAM_DATA"
+			break
+		if startCopying:
+			output.write(line)
+#	print "input=%s output=%s" % (filename, output.name)
+	output.close()
+	return DataTable(output.name)
+
+
+# First check if user has provided directory to save all results files
+opt_parser = OptionParser("Usage: %prog [options] run_config")
+opt_parser.add_option("-f", "--file", dest="vis_filename", help="vis filename with which to generage a y_col_description average value", metavar="FILE")
+opt_parser.add_option("-y", "--y_col_name", dest="y_col_name", help="vis filename with which to generage a y_col_description average value")
+
+def get_rbhr_from_vis(filename):
+	if not os.path.exists(filename):
+		print "ERROR: vis file %s not found" % filename
+		exit()
+
+	fp = open(filename, "r")
+
+	pattern = re.compile(r'RBHR\s*=\s*(0.\d+)')
+
+	rbhr = []
+	for line in fp:
+		match  = re.search(pattern, line)
+		if match:
+			rbhr.append(match.group(1))
+
+	# calc average
+	sum = 0.0
+	for r in rbhr:
+		print r
+		sum += float(r);
+
+	print round(sum / len(rbhr),2)
+
+def get_mpki_from_stats(filename, total_insns = 100000000):
+	if not os.path.exists(filename):
+		print "ERROR: vis file %s not found" % filename
+		exit()
+
+	fp = open(filename, "r")
+
+
+	# L2_0:
+	#   Total Hits:
+	#   Total Miss:
+	# counter indicate Total Miss line offset is 1 + 2
+	counter = 0
+
+	p1 = re.compile(r'L2_0:')
+	p2 = re.compile(r'\s*Total\s*Miss\s*:\s*(\d+)')
+	pattern = p1
+
+	miss = 0
+	for line in fp:
+		counter += 1
+		match  = re.search(pattern, line)
+		if counter == 3 and match:
+			miss = float(match.group(1))
+			break
+		elif counter == 3 and not match:
+			pattern = p1
+		elif match: 		# match L2_0:
+			pattern = p2
+			print match.group()
+			print counter
+			counter = 1
+
+	print round((miss * 1000)/total_insns , 2)
+	# while p1 search 
+	# 	if match
+	# 		counter=1, and counter 3 must mach Miss:
+
+
+'''
+while True:
+     line = f.readlines()[64:66]
+     if len(line) == 0: # Zero length indicates EOF
+         break
+     print line,
+     # Notice comma to avoid automatic newline added by Python
+f.close() # close the file 
+
+            for line in weights.readlines():
+                sp = line.strip().split(' ')
+                assert(len(sp) == 2)
+                weight = float(sp[0])
+                id = int(sp[1])
+                w[id] = weight
+'''
+if __name__ == '__main__':
+	# setup options and args
+	(options, args) = opt_parser.parse_args()
+
+	# GOAL-1: sum memory system bandwidth
+
+	# init datatable form vis file
+	dt = vis_file_to_datatable(options.vis_filename)
+
+	chan1 = 'Aggregate_Bandwidth[0]'
+	chan2 = 'Aggregate_Bandwidth[1]'
+
+	total_bd = 0.0
+	bd1 = calc_average_value(dt, chan1)
+	bd2 = calc_average_value(dt, chan2)
+	print round((bd1 + bd2) * 1000, 2)
+
+	# get_rbhr_from_vis(options.vis_filename)
+	# form stats file
+	get_mpki_from_stats(options.vis_filename)
+	

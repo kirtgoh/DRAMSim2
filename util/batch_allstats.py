@@ -105,234 +105,6 @@ f.close() # close the file
                 w[id] = weight
 '''
 
-# Base plugin Metaclass
-class PluginBase(type):
-    """
-    A Metaclass for reader and write plugins.
-    """
-
-    def __init__(self, class_name, bases, namespace):
-        if not hasattr(self, 'plugins'):
-            self.plugins = []
-        else:
-            self.plugins.append(self)
-
-    def __str__(self):
-        return self.__name__
-
-    def get_plugins(self, *args, **kwargs):
-        return sorted(self.plugins, key=lambda x: x.order)
-
-    # add plugins's options, should check set_options attr
-    def set_opt_parser(self, parser):
-        for plugin in self.plugins:
-            assert hasattr(plugin, 'set_options')
-            p = plugin()
-            p.set_options(parser)
-
-# Reader Plugin Base Class
-class Readers(object):
-    """
-    Base class for all Reader plugins.
-    """
-    __metaclass__ = PluginBase
-    order = 0
-
-    def read(options, args):
-        stats = []
-        for plugin in Readers.get_plugins():
-            print plugin
-            p = plugin()
-            st = p.read(options, args)
-            if type(st) == list:
-                stats.extend(st)
-            elif st:
-                stats.append(st)
-
-        print stats
-        return stats
-
-    read = staticmethod(read)
-
-# Writer Plugin Base Class
-class Writers(object):
-    """
-    Base class for all Writer plugins.
-    """
-    __metaclass__ = PluginBase
-    order = 0
-
-    def write(stats, options):
-        for plugin in Writers.get_plugins():
-            p = plugin()
-            p.write(stats, options)
-
-        return stats
-    write = staticmethod(write)
-
-# YAML Stats Reader Class
-class YAMLReader(Readers):
-    """
-    Read the input file as YAML format.
-    """
-
-    def __init__(self):
-        pass
-
-    def set_options(self, parser):
-        """ Add options to parser"""
-        parser.add_option("-y", "--yaml", action="store_true", default=False,
-                dest="yaml_file",
-                help="Treat arguments as input YAML files")
-
-    def load_yaml(self, file):
-        docs = []
-
-        for doc in yaml.load_all(file, Loader=Loader):
-            doc['_file'] = file.name
-            doc['_name'] = os.path.splitext(file.name)[0]
-            docs.append(doc)
-
-        return docs
-
-    def read(self, options, args):
-        """ Read yaml file if user give that option"""
-        if options.yaml_file == True:
-            docs = []
-            for yf in args:
-                l = lambda x: [ doc for doc in yaml.load_all(x, Loader=Loader)]
-                with open(yf, 'r') as st_f:
-                    docs += self.load_yaml(st_f)
-            return docs
-
-# VIS Stats Reader Class
-class VISReader(Readers):
-    """
-    Read the input file as VIS format.
-    """
-
-    def __init__(self):
-        pass
-
-    def set_options(self, parser):
-        """ Add options to parser"""
-        parser.add_option("-v", "--vis", action="store_true", default=False,
-                dest="vis_file",
-                help="Treat arguments as input vis files")
-
-    def load_vis(self, file):
-        docs = []
-
-        for doc in yaml.load_all(file, Loader=Loader):
-            doc['_file'] = file.name
-            doc['_name'] = os.path.splitext(file.name)[0]
-            docs.append(doc)
-
-        return docs
-
-    def read(self, options, args):
-        """ Read vis file if user give that option"""
-        if options.vis_file == True:
-			for fn in args:
-				output = tempfile.NamedTemporaryFile(delete=False)
-				print output.name
-
-				# open the vis file
-				fp = open(fn, "r")
-				line = 'deadbeef';
-
-				startCopying = False
-				while line:
-					line = fp.readline();
-					if line.startswith("!!EPOCH_DATA"):
-						startCopying = True
-						# print "yes find !!EPOCH_DATA"
-						continue
-					elif line.endswith("!!HISTOGRAM_DATA\n"):
-						# print "yes find !!HISTOGRAM_DATA"
-						break
-					if startCopying:
-						output.write(line)
-						# print "input=%s output=%s" % (filename, output.name)
-				output.close()
-					# 	return DataTable(output.name)
-
-
-def setup_options():
-  opt = OptionParser("usage: %prog [options] args")
-
-  # y is class of Readers, Filters, Process or Writers
-  opt_setup = lambda x,y: y.set_opt_parser(x) or opt.add_option_group(x)
-
-  read_opt = OptionGroup(opt, "Input Options")
-  opt_setup(read_opt, Readers)
-
-  filter_opt = OptionGroup(opt, "Stats Filtering Options")
-  # opt_setup(filter_opt, Filters)
-
-  process_opt = OptionGroup(opt, "PostProcess Options")
-  # opt_setup(process_opt, Process)
-
-  write_opt = OptionGroup(opt, "Output Options")
-  # opt_setup(write_opt, Writers)
-
-  return opt 
-
-def execute(options, args):
-    """ Run this script with given options to generate user specific output"""
-
-    # First read in all the stats
-    stats = Readers.read(options, args)
-
-    # stats = Filters.filter(stats, options)
-    #
-    # stats = Process.process(stats, options)
-    #
-    # Writers.write(stats, options)
-
-def load_plugins():
-    exec_dir = os.path.dirname(os.path.realpath(sys.argv[0]))
-    sys.path.append(exec_dir)
-    path = "%s/mstats_plugins" % (exec_dir)
-    for root, dirs, files in os.walk(path):
-        for name in files:
-            if name.endswith(".py") and not name.startswith("__"):
-                path = os.path.join("mstats_plugins", name)
-                path = path [1:] if path[0] == '/' else path
-                print path
-                plugin_name = path.rsplit('.',1)[0].replace('/','.')
-                try:
-                    __import__(plugin_name)
-                except Exception as e:
-                    debug("Unable to load plugin: %s" % plugin_name)
-                    debug("Exception %s" % str(e))
-                    pass
-def get_files_path(path, suffix=".vis"):
-	file_list = []
-	for root, dirs, files in os.walk(path):
-		for name in files:
-			if name.endswith(suffix):
-				filepath = os.path.join(root, name)
-				file_list.append(filepath)
-				# os.remove(name)
-				# file_list.append(name)
-
-	return file_list 
-
-def print_files(path, filelist):
-	filetmp = filelist
-	print "Change folder"
-	os.chdir(path)
-	print "The dirname is: "
-	print os.getcwd()
-	print "Got the list now: "
-
-	for i in os.listdir(path):
-		print '\n',i,'\t\t',len(i)
-
-	for i in filelist:
-		os.remove(i)
-
 def vis_file_to_datatable(filename):
 	if not os.path.exists(filename):
 		print "ERROR: vis file %s not found" % filename
@@ -369,41 +141,261 @@ def calc_bandwidth(datatable):
 	
 	return chan1 + chan2
 
-def gen_header(filename):
-	# (machine) (checkpoint) (scheme)
-	pattern= re.compile(out_dir + '(.+)_(.+)\.(.+)/DDR.*')
-	match = re.search(pattern, filename)
-	if match:
-		machine = match.group(1)
-		checkpoint = match.group(2)
-		scheme = match.group(3)
+def get_files_list(path, suffix=".vis"):
+	file_list = []
+	for root, dirs, files in os.walk(path):
+		for name in files:
+			if name.endswith(suffix):
+				filepath = os.path.join(root, name)
+				file_list.append(filepath)
+				# os.remove(name)
+				# file_list.append(name)
 
-	print "checkpoint:\t%s" % checkpoint
+	return file_list 
+
+
+# input should be vis file
+def get_rbhr_from_vis(filename):
+	if not os.path.exists(filename):
+		print "ERROR: vis file %s not found" % filename
+		exit()
+
+	fp = open(filename, "r")
+
+	pattern = re.compile(r'RBHR\s*=\s*(0.\d+)')
+
+	rbhr = []
+	for line in fp:
+		match  = re.search(pattern, line)
+		if match:
+			rbhr.append(match.group(1))
+
+	# calc average
+	sum = 0.0
+	for r in rbhr:
+		sum += float(r);
+
+	return sum / len(rbhr)
+
+# First check if user has provided directory to save all results files
+opt_parser = OptionParser("Usage: %prog [options] run_config")
+
+# input file as vis file
+opt_parser.add_option("-f", "--file", dest="vis_filename", help="vis filename with which to generage a y_col_description average value", metavar="FILE")
+# indicate stats file's column name
+opt_parser.add_option("-y", "--y_col_name", dest="y_col_name", help="vis filename with which to generage a y_col_description average value")
+opt_parser.add_option("-i", "--ipc", action="store_true", default=False,
+		dest="ipc_stats",
+		help="Present IPC stats")
+opt_parser.add_option("-r", "--rbhr", action="store_true", default=False,
+		dest="rbhr_stats",
+		help="Present RBHR stats")
+opt_parser.add_option("-m", "--mpki", action="store_true", default=False,
+		dest="mpki_stats",
+		help="Present mpki stats")
+opt_parser.add_option("-b", "--bdw", action="store_true", default=False,
+		dest="band_stats",
+		help="Present bandwidth stats")
+
+def get_threads_ipc(log_filename):
+	if not os.path.exists(log_filename):
+		error("ERROR: vis file %s not found" % log_filename)
+
+	fp = open(log_filename, "r")
+
+	pat_total = re.compile(r'insns\/cyc:\s*(0.\d+)')
+	pat_xeon = re.compile(r'total.base_machine.(.*).thread0.commit.ipc\s*=\s*(0.\d+)')
+
+	ipcs = []
+	for line in fp:
+		match_total  = re.search(pat_total, line)
+		match_xeon = re.search(pat_xeon, line) 
+
+		if match_total:
+			ipcs.append(match_total.group(1))
+
+		if match_xeon:
+			ipcs.append(match_xeon.group(2))
+
+
+	# if not match:
+	# 	error("Can not match IPC")
+	
+	# print match.group()
+	# return match.group(1)
+	return ipcs
+
+# stats file should be handled by mstats.py
+def get_mpki_from_stats(stats_filename, num_insns):
+	# generate cache file
+	target_file = stats_filename + '.cache'
+	cmd_line = "./mstats.py -y --yaml-out -t total --cache-summary %s > %s" % (stats_filename, target_file)
+
+	if not os.path.exists(target_file):
+		os.system(cmd_line)
+
+
+	# handle generate cache summary file
+	fp = open(target_file, "r")
+
+	# L2_0:
+	#   Total Hits:
+	#   Total Miss:
+	# counter indicate Total Miss line offset is 1 + 2
+	counter = 0
+
+	p1 = re.compile(r'L2_0:')
+	p2 = re.compile(r'\s*Total\s*Miss\s*:\s*(\d+)')
+	pattern = p1
+
+	miss = 0
+	for line in fp:
+		counter += 1
+		match  = re.search(pattern, line)
+		if counter == 3 and match:
+			miss = float(match.group(1))
+			break
+		elif counter == 3 and not match:
+			pattern = p1
+		elif match: 		# match L2_0:
+			pattern = p2
+			# print match.group()
+			# print counter
+			counter = 1
+
+	return (miss * 1000) / float(num_insns)
+
+def gen_tags(vis_filename):
+	# (machine) (checkpoint) (scheme)
+
+	# findout machine_tag,checkpoints, shceme, 
+	# eg., :
+	# vis_file = '/home/kgoh/DRAMSim2/results/spec2006/xeon-4-1_1perl4c.Nehalem/DDR3_micron_16M_8B_x8_sg15/2GB.2Ch.2R.Nehalem.open_page.32TQ.4CQ.RtB.pRankpBank.vis'
+	# stats_file = '/home/kgoh/DRAMSim2/results/spec2006/xeon-4-1_1perl4c.Nehalem/xeon-4-1_1perl4c.Nehalem.stats'
+	# out_dir = '/home/kgoh/DRAMSim2/results/spec2006/'
+
+	pattern= re.compile(path + '\/(.+)_(.+)\.(.+)/DDR.*')
+	match = re.search(pattern, vis_filename)
+	if match:
+		tag = dict(
+			machine = match.group(1),
+			checkpoint = match.group(2),
+			scheme = match.group(3)
+		)
+	else:
+		error("can not get visfile's tags")
+
+	# print "checkpoint:\t%s" % tag['checkpoint']
+	return tag
+
+def get_num_insns(logfile):
+	if not os.path.exists(logfile):
+		error("ERROR: log file %s not found" % logfile)
+
+	fp = open(logfile, "r")
+	
+	num = 0
+	pattern = re.compile(r'(\d+)\s*instructions')
+	for line in fp:
+		# print line
+		match = re.search(pattern, line)
+		if match:
+			num = match.group(1)
+	
+	return num
+
+def gen_run_configs(path):
+	# path is util like spec2006
+    # For each checkpoint create a run_config dict and add to list
+
+	run_cfgs = []
+
+	# first get first sub folders and 
+	# get first sub folders
+	sub_dirs= os.listdir(path)
+	
+	for result_fold in sub_dirs:
+		p = os.path.join(path, result_fold)
+		# walk through every sub result folder
+		run_cfg = {}
+		for root, dirs, files in os.walk(p):
+			for name in files:
+				# vis file
+				if name.endswith(".vis"):
+					filepath = os.path.join(root, name)
+					run_cfg['vis_file'] = filepath
+					# get # (machine) (checkpoint) (scheme)
+					tag = gen_tags(filepath)
+					run_cfg['machine'] = tag['machine']
+					run_cfg['checkpoint'] = tag['checkpoint']
+					run_cfg['scheme'] = tag['scheme']
+				# stats file
+				if name.endswith(".stats"):
+					filepath = os.path.join(root, name)
+					run_cfg['stats_file'] = filepath
+				# log file
+				if name.endswith(".log"):
+					filepath = os.path.join(root, name)
+					run_cfg['log_file'] = filepath
+					run_cfg['num_insns'] = get_num_insns(filepath)
+
+		run_cfgs.append(run_cfg)
+
+	return run_cfgs
 
 if __name__ == '__main__':
 
-	# realpath = out_dir
-  # -stats %(out_dir)s/%(machine_tag)s_%(bench)s.stats
-  # -dramsim-results-dir-name parsec-2.1/%(machine_tag)s_%(bench)s.%(scheme)s
-  #
-	# findout machine_tag,checkpoints, shceme, 
-	vis_file = '/home/kgoh/DRAMSim2/results/spec2006/xeon-4-1_1perl4c.Nehalem/DDR3_micron_16M_8B_x8_sg15/2GB.2Ch.2R.Nehalem.open_page.32TQ.4CQ.RtB.pRankpBank.vis'
-	stats_file = '/home/kgoh/DRAMSim2/results/spec2006/xeon-4-1_1perl4c.Nehalem/xeon-4-1_1perl4c.Nehalem.stats'
-	out_dir = '/home/kgoh/DRAMSim2/results/spec2006/'
+	# parse options
+	(options, args) = opt_parser.parse_args()
+	if args == None or args == []:
+		opt_parser.print_help()
+		sys.exit(-1)
 
-	# print out_dir + '(s+)_*'
 
-	bench = 'spec2006'
-	path = "/home/kgoh/DRAMSim2/results/%s" % (bench)
+	# bench = 'spec2006'
+	for bench in args:
+		# gen target path
+		path = "/home/kgoh/DRAMSim2/results/%s" % (bench)
+		if not os.path.exists(path):
+			error("Target is not exists")
+			
 
-	# get all the vis file
-	lists = get_files_path(path)
+    	# For each checkpoint create a run_config dict and add to list
+		run_cfgs = []
 
-	chan1 = 'Aggregate_Bandwidth[0]'
-	chan2 = 'Aggregate_Bandwidth[1]'
-	for fn in lists:
-		gen_header(fn)
-		dt = vis_file_to_datatable(fn)
-		bd = calc_bandwidth(dt)
-		print "BW:\t" + str(round(bd * 1000, 2)) + "MB/s"
+		# get all the vis file, list =['abs1','abs2']
+		run_cfgs.extend (gen_run_configs(path))
 
+		print " == Bench folder: %s" % bench
+		print "Total checkpoints : %d" % len(run_cfgs)
+		for cfgs in run_cfgs:
+			print " -- %s: " % cfgs['checkpoint']
+
+			# Output mpki
+			if options.mpki_stats == True:
+				print "\tMPKI: \t\t%.2f" % get_mpki_from_stats(cfgs['stats_file'], cfgs['num_insns'])
+
+			# Output Bandwidth
+			if options.band_stats == True:
+				dt = vis_file_to_datatable(cfgs['vis_file'])
+				bd = calc_bandwidth(dt) * 1000 # MB/s
+				# DDR3-1333 and 2 channals
+				full_bd = (128 * 2 * 666.0) / 8
+				print "\tBW:\t\t%.2fMB/s\t%.2f%%" % (bd, ((bd / full_bd) * 100))
+
+			# Output rbhr
+			if options.rbhr_stats == True:
+				print "\tRBHR: \t\t%.2f%%" % (get_rbhr_from_vis(cfgs['vis_file'])*100)
+				print ""
+
+			# Output ipc
+			if options.ipc_stats == True:
+				ipcs = get_threads_ipc(cfgs['log_file'])
+
+				print "\tIPC_all: \t%f" % (float(ipcs[0]))
+
+				xeon_num = len(ipcs)
+				for i in range(1, xeon_num):
+					print "\tIPC_xeon_%d: \t%f" % (i-1, float(ipcs[i]))
+				
+			

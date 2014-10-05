@@ -203,8 +203,8 @@ def get_threads_ipc(log_filename):
 
 	fp = open(log_filename, "r")
 
-	pat_total = re.compile(r'insns\/cyc:\s*(0.\d+)')
-	pat_xeon = re.compile(r'total.base_machine.(.*).thread0.commit.ipc\s*=\s*(0.\d+)')
+	pat_total = re.compile(r'insns\/cyc:\s*(\d.\d+)')
+	pat_xeon = re.compile(r'total.base_machine.(.*).thread0.commit.ipc\s*=\s*(\d.\d+)')
 
 	ipcs = []
 	for line in fp:

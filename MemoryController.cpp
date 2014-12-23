@@ -81,6 +81,7 @@ MemoryController::MemoryController(MemorySystem *parent, CSVWriter &csvOut_, ost
 	isHit = false;
 	grandHitTrans = 0;
 	grandPopTrans = 0;
+	grandHitVTrans = 0;
 
 	//bus related fields
 	outgoingCmdPacket = NULL;
@@ -543,6 +544,7 @@ void MemoryController::update()
 				break;
 			case READ_B:
 				bankBuffers[rank][bank].bufferAccess(poppedBusPacket);
+				grandHitVTrans++;
 
 				for (size_t i=0;i<NUM_RANKS;i++)
 				{
@@ -576,6 +578,7 @@ void MemoryController::update()
 				break;
 			case WRITE_B:
 				bankBuffers[rank][bank].bufferAccess(poppedBusPacket);
+				grandHitVTrans++;
 
 				for (size_t i=0;i<NUM_RANKS;i++)
 				{
@@ -1142,6 +1145,7 @@ void MemoryController::printStats(bool finalStats)
 		if (VIS_FILE_OUTPUT)
 		{
 			csvOut.getOutputStream() << "RBHR ="<< (float) grandHitTrans / grandPopTrans<<endl;
+			csvOut.getOutputStream() << "VRBHR ="<< (float) grandHitVTrans / grandPopTrans<<endl;
 		}
 		PRINT( " --- Grand Reads Checkout");
 		PRINT( "income reads: "<<grandReadTrans);

@@ -109,6 +109,7 @@ private:
 	bool isHit;
 	uint64_t grandHitTrans;
 	uint64_t grandPopTrans;
+	uint64_t grandHitVTrans;
 	// these packets are counting down waiting to be transmitted on the "bus"
 	BusPacket *outgoingCmdPacket;
 	unsigned cmdCyclesLeft;

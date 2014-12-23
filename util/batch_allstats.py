@@ -140,6 +140,15 @@ def calc_bandwidth(datatable):
 		chan2 = sum(data) / len(data)
 	
 	return chan1 + chan2
+def power_of_background(power_name, datatable):
+
+	# calc chan's background power
+	if datatable.contains_column(power_name):
+		data = datatable.get_data(power_name)
+		# average
+		chan = sum(data) / len(data)
+	
+	return chan
 
 def get_files_list(path, suffix=".vis"):
 	file_list = []
@@ -153,6 +162,25 @@ def get_files_list(path, suffix=".vis"):
 
 	return file_list 
 
+
+# input should be vis file
+def get_latency_from_vis(filename):
+	if not os.path.exists(filename):
+		print "ERROR: vis file %s not found" % filename
+		exit()
+
+	fp = open(filename, "r")
+	pattern = re.compile(r'^(\d+)=(\d+)')
+
+	latency = 0
+	weight = 0
+	for line in fp:
+		match  = re.search(pattern, line)
+		if match:
+			latency += float(match.group(1)) * float(match.group(2))
+			weight += float(match.group(2))
+
+	print latency / weight
 
 # input should be vis file
 def get_rbhr_from_vis(filename):
@@ -190,12 +218,18 @@ opt_parser.add_option("-i", "--ipc", action="store_true", default=False,
 opt_parser.add_option("-r", "--rbhr", action="store_true", default=False,
 		dest="rbhr_stats",
 		help="Present RBHR stats")
+opt_parser.add_option("-l", "--latency", action="store_true", default=False,
+		dest="latency_stats",
+		help="Present Latency stats")
 opt_parser.add_option("-m", "--mpki", action="store_true", default=False,
 		dest="mpki_stats",
 		help="Present mpki stats")
 opt_parser.add_option("-b", "--bdw", action="store_true", default=False,
 		dest="band_stats",
 		help="Present bandwidth stats")
+opt_parser.add_option("-p", "--power-bg", action="store_true", default=False,
+		dest="power_stats",
+		help="Present power stats")
 
 def get_threads_ipc(log_filename):
 	if not os.path.exists(log_filename):
@@ -351,6 +385,25 @@ if __name__ == '__main__':
 		opt_parser.print_help()
 		sys.exit(-1)
 
+	c1_r1_background = 	'Background_Power[0][0]'
+	c1_r1_act_pre = 'ACT_PRE_Power[0][0]'
+	c1_r1_burst = 'Burst_Power[0][0]'
+	c1_r1_refresh = 'Refresh_Power[0][0]'
+
+	c1_r2_background = 	'Background_Power[0][1]'
+	c1_r2_act_pre = 'ACT_PRE_Power[0][1]'
+	c1_r2_burst = 'Burst_Power[0][1]'
+	c1_r2_refresh = 'Refresh_Power[0][1]'
+
+	c2_r1_background = 	'Background_Power[1][0]'
+	c2_r1_act_pre = 'ACT_PRE_Power[1][0]'
+	c2_r1_burst = 'Burst_Power[1][0]'
+	c2_r1_refresh = 'Refresh_Power[1][0]'
+
+	c2_r2_background = 	'Background_Power[1][1]'
+	c2_r2_act_pre = 'ACT_PRE_Power[1][1]'
+	c2_r2_burst = 'Burst_Power[1][1]'
+	c2_r2_refresh = 'Refresh_Power[1][1]'
 
 	# bench = 'spec2006'
 	for bench in args:
@@ -387,6 +440,74 @@ if __name__ == '__main__':
 			if options.rbhr_stats == True:
 				print "\tRBHR: \t\t%.2f%%" % (get_rbhr_from_vis(cfgs['vis_file'])*100)
 				print ""
+
+			# Output Latency
+			if options.latency_stats == True:
+				get_latency_from_vis(cfgs['vis_file'])
+				print ""
+
+			# Output ipc
+			if options.power_stats == True:
+				dt = vis_file_to_datatable(cfgs['vis_file'])
+				# channel 1
+				c1_r1_power_background = power_of_background(c1_r1_background, dt) # mJ/10000 cycle
+				c1_r1_power_act_pre = power_of_background(c1_r1_act_pre, dt)
+				c1_r1_power_burst = power_of_background(c1_r1_burst, dt)
+				c1_r1_power_refresh = power_of_background(c1_r1_refresh, dt)
+
+				c1_r2_power_background = power_of_background(c1_r2_background, dt) 
+				c1_r2_power_act_pre = power_of_background(c1_r2_act_pre, dt)
+				c1_r2_power_burst = power_of_background(c1_r2_burst, dt)
+				c1_r2_power_refresh = power_of_background(c1_r2_refresh, dt)
+
+				# channel 2
+				c2_r1_power_background = power_of_background(c2_r1_background, dt) 
+				c2_r1_power_act_pre = power_of_background(c2_r1_act_pre, dt)
+				c2_r1_power_burst = power_of_background(c2_r1_burst, dt)
+				c2_r1_power_refresh = power_of_background(c2_r1_refresh, dt)
+
+				c2_r2_power_background = power_of_background(c2_r2_background, dt) 
+				c2_r2_power_act_pre = power_of_background(c2_r2_act_pre, dt)
+				c2_r2_power_burst = power_of_background(c2_r2_burst, dt)
+				c2_r2_power_refresh = power_of_background(c2_r2_refresh, dt)
+
+
+				# chan1_average_power = c1_r1_power_background + c1_r1_power_act_pre + c1_r1_power_burst + c1_r1_power_refresh
+				# 		+ c1_r2_power_background + c1_r2_power_act_pre + c1_r2_power_burst + c1_r2_power_refresh
+                #
+				# chan2_average_power = c2_r1_power_background + c2_r1_power_act_pre + c2_r1_power_burst + c2_r1_power_refresh
+				# 		+ c2_r2_power_background + c2_r2_power_act_pre + c2_r2_power_burst + c2_r2_power_refresh
+
+				power_background = c1_r1_power_background + c1_r2_power_background + c2_r1_power_background + c2_r2_power_background
+				power_act_pre = c1_r1_power_act_pre + c1_r2_power_act_pre + c2_r1_power_act_pre + c2_r2_power_act_pre
+				power_burst = c1_r1_power_burst + c1_r2_power_burst + c1_r1_power_burst + c2_r2_power_burst
+				power_refresh = c1_r1_power_refresh + c1_r2_power_refresh + c2_r1_power_refresh + c2_r2_power_refresh
+				power_all = power_background + power_act_pre + power_burst + power_refresh
+
+				# print "\t%s:\t\t%.2fmJ" % (c1_r1_background, c1_r1_power_background)
+				# print "\t%s:\t\t%.2fmJ" % (c1_r2_background, c1_r2_power_background)
+				# print "\t%s:\t\t%.2fmJ" % (c2_r1_background, c2_r1_power_background)
+				# print "\t%s:\t\t%.2fmJ" % (c2_r2_background, c2_r2_power_background)
+				print "\t%s:\t\t%.2fmJ" % ("Power_All", power_all)
+				print "\t%s:\t\t%.2fmJ" % ("Power_Back", power_background)
+
+				# print "\t%s:\t\t%.2fmJ" % (c1_r1_act_pre, c1_r1_power_act_pre)
+				# print "\t%s:\t\t%.2fmJ" % (c1_r2_act_pre, c1_r2_power_act_pre)
+				# print "\t%s:\t\t%.2fmJ" % (c2_r1_act_pre, c2_r1_power_act_pre)
+				# print "\t%s:\t\t%.2fmJ" % (c2_r2_act_pre, c2_r2_power_act_pre)
+				print "\t%s:\t\t%.2fmJ" % ("Power_ACT_PRE", power_act_pre)
+
+				# print "\t%s:\t\t%.2fmJ" % (c1_r1_burst, c1_r1_power_burst)
+				# print "\t%s:\t\t%.2fmJ" % (c1_r2_burst, c1_r2_power_burst)
+				# print "\t%s:\t\t%.2fmJ" % (c2_r1_burst, c2_r1_power_burst)
+				# print "\t%s:\t\t%.2fmJ" % (c2_r2_burst, c2_r2_power_burst)
+				print "\t%s:\t\t%.2fmJ" % ("Power_Burst", power_burst)
+
+				# print "\t%s:\t\t%.2fmJ" % (c1_r1_refresh, c1_r1_power_refresh)
+				# print "\t%s:\t\t%.2fmJ" % (c1_r2_refresh, c1_r2_power_refresh)
+				# print "\t%s:\t\t%.2fmJ" % (c2_r1_refresh, c2_r1_power_refresh)
+				# print "\t%s:\t\t%.2fmJ" % (c2_r2_refresh, c2_r2_power_refresh)
+				print "\t%s:\t\t%.2fmJ" % ("Power_Refresh", power_refresh)
 
 			# Output ipc
 			if options.ipc_stats == True:

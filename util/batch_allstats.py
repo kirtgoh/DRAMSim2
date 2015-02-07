@@ -180,9 +180,34 @@ def get_latency_from_vis(filename):
 			latency += float(match.group(1)) * float(match.group(2))
 			weight += float(match.group(2))
 
-	print latency / weight
+	print "\t%s:\t\t%.2f" % ("Latency", latency / weight)
 
 # input should be vis file
+def get_vrbhr_from_vis(filename):
+	if not os.path.exists(filename):
+		print "ERROR: vis file %s not found" % filename
+		exit()
+
+	fp = open(filename, "r")
+
+	pattern = re.compile(r'VRBHR\s*=\s*(0.\d+)')
+
+	vrbhr = []
+	for line in fp:
+		match  = re.search(pattern, line)
+		if match:
+			vrbhr.append(match.group(1))
+
+	# calc average
+	sum = 0.0
+	for r in vrbhr:
+		sum += float(r);
+
+	if len(vrbhr):
+		return sum / len(vrbhr)
+	return 0
+# input should be vis file
+
 def get_rbhr_from_vis(filename):
 	if not os.path.exists(filename):
 		print "ERROR: vis file %s not found" % filename
@@ -438,7 +463,12 @@ if __name__ == '__main__':
 
 			# Output rbhr
 			if options.rbhr_stats == True:
-				print "\tRBHR: \t\t%.2f%%" % (get_rbhr_from_vis(cfgs['vis_file'])*100)
+				rbhr = get_rbhr_from_vis(cfgs['vis_file'])*100
+				vrbhr = get_vrbhr_from_vis(cfgs['vis_file'])*100
+				all_rbhr = rbhr + vrbhr
+				print "\tALL: \t\t%.2f%%" % (all_rbhr)
+				# print "\tRBHR: \t\t%.2f%%" % (rbhr)
+				# print "\tVRBHR: \t\t%.2f%%" % (vrbhr)
 				print ""
 
 			# Output Latency
@@ -489,25 +519,25 @@ if __name__ == '__main__':
 				# print "\t%s:\t\t%.2fmJ" % (c2_r1_background, c2_r1_power_background)
 				# print "\t%s:\t\t%.2fmJ" % (c2_r2_background, c2_r2_power_background)
 				print "\t%s:\t\t%.2fmJ" % ("Power_All", power_all)
-				print "\t%s:\t\t%.2fmJ" % ("Power_Back", power_background)
+				# print "\t%s:\t\t%.2fmJ" % ("Power_Back", power_background)
 
 				# print "\t%s:\t\t%.2fmJ" % (c1_r1_act_pre, c1_r1_power_act_pre)
 				# print "\t%s:\t\t%.2fmJ" % (c1_r2_act_pre, c1_r2_power_act_pre)
 				# print "\t%s:\t\t%.2fmJ" % (c2_r1_act_pre, c2_r1_power_act_pre)
 				# print "\t%s:\t\t%.2fmJ" % (c2_r2_act_pre, c2_r2_power_act_pre)
-				print "\t%s:\t\t%.2fmJ" % ("Power_ACT_PRE", power_act_pre)
+				# print "\t%s:\t\t%.2fmJ" % ("Power_ACT_PRE", power_act_pre)
 
 				# print "\t%s:\t\t%.2fmJ" % (c1_r1_burst, c1_r1_power_burst)
 				# print "\t%s:\t\t%.2fmJ" % (c1_r2_burst, c1_r2_power_burst)
 				# print "\t%s:\t\t%.2fmJ" % (c2_r1_burst, c2_r1_power_burst)
 				# print "\t%s:\t\t%.2fmJ" % (c2_r2_burst, c2_r2_power_burst)
-				print "\t%s:\t\t%.2fmJ" % ("Power_Burst", power_burst)
+				# print "\t%s:\t\t%.2fmJ" % ("Power_Burst", power_burst)
 
 				# print "\t%s:\t\t%.2fmJ" % (c1_r1_refresh, c1_r1_power_refresh)
 				# print "\t%s:\t\t%.2fmJ" % (c1_r2_refresh, c1_r2_power_refresh)
 				# print "\t%s:\t\t%.2fmJ" % (c2_r1_refresh, c2_r1_power_refresh)
 				# print "\t%s:\t\t%.2fmJ" % (c2_r2_refresh, c2_r2_power_refresh)
-				print "\t%s:\t\t%.2fmJ" % ("Power_Refresh", power_refresh)
+				# print "\t%s:\t\t%.2fmJ" % ("Power_Refresh", power_refresh)
 
 			# Output ipc
 			if options.ipc_stats == True:

@@ -167,6 +167,7 @@ string FilenameWithNumberSuffix(const string &filename, const string &extension,
  **/
 void MultiChannelMemorySystem::InitOutputFiles(string traceFilename)
 {
+	size_t firstSlash;
 	size_t lastSlash;
 	size_t deviceIniFilenameLength = deviceIniFilename.length();
 	string sim_description_str;
@@ -204,6 +205,7 @@ void MultiChannelMemorySystem::InitOutputFiles(string traceFilename)
 		stringstream out,tmpNum;
 		string path;
 		string filename;
+		string temp;
 
 		if (!visFilename)
 		{
@@ -222,11 +224,13 @@ void MultiChannelMemorySystem::InitOutputFiles(string traceFilename)
 			}
 
 		string rest;
-			// working backwards, chop off the next piece of the directory
-			if ((lastSlash = traceFilename.find_last_of("/")) != string::npos)
+	/*		if ((firstSlash = traceFilename.find_last_of("/")) != string::npos)
 			{
-				traceFilename = traceFilename.substr(lastSlash+1,traceFilename.length()-lastSlash-1);
-			}
+				temp = traceFilename;
+				traceFilename = traceFilename.substr(firstSlash+1,traceFilename.length()-firstSlash-1);
+				DEBUG("trc1 ="<<traceFilename); 
+				DEBUG("trc2 ="<<temp); 
+			} */
 			if (sim_description != NULL)
 			{
 				traceFilename += "."+sim_description_str;
@@ -239,6 +243,16 @@ void MultiChannelMemorySystem::InitOutputFiles(string traceFilename)
 
 			// create the directories if they don't exist 
 			mkdirIfNotExist(path);
+
+			// working forwards, chop off the next piece of the directory
+			while ((firstSlash = traceFilename.find_last_of("/")) != string::npos)
+			{
+				temp = traceFilename.substr(0,firstSlash);
+				path = path + temp + "/";
+				mkdirIfNotExist(path);
+				traceFilename = traceFilename.substr(firstSlash+1,traceFilename.length()-firstSlash-1);
+			}
+
 			path = path + traceFilename + "/";
 			mkdirIfNotExist(path);
 			path = path + deviceName + "/";
@@ -310,7 +324,6 @@ void MultiChannelMemorySystem::InitOutputFiles(string traceFilename)
 #endif
 
 }
-
 
 void MultiChannelMemorySystem::mkdirIfNotExist(string path)
 {

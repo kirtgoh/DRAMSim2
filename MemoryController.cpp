@@ -91,6 +91,10 @@ MemoryController::MemoryController(MemorySystem *parent, CSVWriter &csvOut_, ost
 	totalReadsPerRank = vector<uint64_t>(NUM_RANKS,0);
 	totalWritesPerRank = vector<uint64_t>(NUM_RANKS,0);
 
+	//Row buffer hit rate (RBHR) related
+	totalUsesPerBank= vector<uint64_t>(NUM_RANKS*NUM_BANKS,0);
+	grandPREs = 0;
+
 	writeDataCountdown.reserve(NUM_RANKS);
 	writeDataToSend.reserve(NUM_RANKS);
 	refreshCountdown.reserve(NUM_RANKS);
@@ -356,6 +360,7 @@ void MemoryController::update()
 					bankStates[rank][bank].nextRead = bankStates[rank][bank].nextActivate;
 					bankStates[rank][bank].nextWrite = bankStates[rank][bank].nextActivate;
 				}
+				totalUsesPerBank[SEQUENTIAL(rank,bank)]++;
 
 				break;
 			case WRITE_P:
@@ -412,6 +417,7 @@ void MemoryController::update()
 					bankStates[rank][bank].nextRead = bankStates[rank][bank].nextActivate;
 					bankStates[rank][bank].nextWrite = bankStates[rank][bank].nextActivate;
 				}
+				totalUsesPerBank[SEQUENTIAL(rank,bank)]++;
 
 				break;
 			case ACTIVATE:
@@ -447,6 +453,12 @@ void MemoryController::update()
 				bankStates[rank][bank].lastCommand = PRECHARGE;
 				bankStates[rank][bank].stateChangeCountdown = tRP;
 				bankStates[rank][bank].nextActivate = max(currentClockCycle + tRP, bankStates[rank][bank].nextActivate);
+
+
+				//for RBHR & row usecounts 
+				grandPREs++;
+				insertHistogramACT(totalUsesPerBank[SEQUENTIAL(rank,bank)]);
+				totalUsesPerBank[SEQUENTIAL(rank,bank)] = 0;
 
 				break;
 			case REFRESH:
@@ -938,6 +950,20 @@ void MemoryController::printStats(bool finalStats)
 				}
 			}
 		}
+		if (VIS_FILE_OUTPUT)
+		{
+			csvOut.getOutputStream() << "RBHR ="<< (float) (totalTransactions - grandPREs) / totalTransactions <<endl;
+		}
+		// usecount
+		map<unsigned,unsigned>::iterator it_c; //
+		for (it_c=usecounts.begin(); it_c!=usecounts.end(); it_c++)
+		{
+			PRINT( "       ["<< it_c->first <<"-"<<it_c->first<<"] : "<< it_c->second );
+			if (VIS_FILE_OUTPUT)
+			{
+				csvOut.getOutputStream() << it_c->first <<"="<< it_c->second << endl;
+			}
+		}
 
 	}
 
@@ -975,4 +1001,10 @@ void MemoryController::insertHistogram(unsigned latencyValue, unsigned rank, uns
 	totalEpochLatency[SEQUENTIAL(rank,bank)] += latencyValue;
 	//poor man's way to bin things.
 	latencies[(latencyValue/HISTOGRAM_BIN_SIZE)*HISTOGRAM_BIN_SIZE]++;
+}
+
+void MemoryController::insertHistogramACT(unsigned usecount)
+{
+	//poor man's way to bin things.
+	usecounts[usecount]++;
 }

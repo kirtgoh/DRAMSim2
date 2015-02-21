@@ -77,6 +77,7 @@ private:
 	vector< vector <BankState> > bankStates;
 	//functions
 	void insertHistogram(unsigned latencyValue, unsigned rank, unsigned bank);
+	void insertHistogramACT(unsigned usecount);
 
 	//fields
 	MemorySystem *parentMemorySystem;
@@ -95,6 +96,11 @@ private:
 
 	//output file
 	CSVWriter &csvOut; 
+
+	vector<uint64_t> totalUsesPerBank; // total row buffer use count before precharege
+	uint64_t grandPREs;
+
+	map<unsigned,unsigned> usecounts; // row buffer usecount-> count 
 
 	// these packets are counting down waiting to be transmitted on the "bus"
 	BusPacket *outgoingCmdPacket;

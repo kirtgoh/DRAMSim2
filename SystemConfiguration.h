@@ -79,6 +79,15 @@ extern unsigned NUM_ROWS;
 extern unsigned NUM_COLS;
 extern unsigned DEVICE_WIDTH;
 
+#ifdef VICTIMBUFFER
+extern uint64_t BUFFER_STORAGE;
+extern unsigned BUFFER_WAY_COUNT;
+extern unsigned BUFFER_BLOCK_SIZE;
+
+extern bool DEBUG_BUFFERSTATE;
+extern std::string BUFFER_REPLACE_POLICY;
+#endif
+
 //in nanoseconds
 extern unsigned REFRESH_PERIOD;
 extern float tCK;
@@ -172,6 +181,15 @@ enum SchedulingPolicy
 	BankThenRankRoundRobin
 };
 
+// Only used in RowBufferCache
+#ifdef VICTIMBUFFER
+enum BufferPolicy	// cache replacement policy 
+{
+	LRU,		// replace least recently used block (perfect LRU)
+	RANDOM,		// replace a random block
+	FIFO		// replace the oldest block in the set
+};
+#endif
 
 // set by IniReader.cpp
 
@@ -185,6 +203,10 @@ extern RowBufferPolicy rowBufferPolicy;
 extern SchedulingPolicy schedulingPolicy;
 extern AddressMappingScheme addressMappingScheme;
 extern QueuingStructure queuingStructure;
+
+#ifdef VICTIMBUFFER
+extern BufferPolicy bufferPolicy;
+#endif
 //
 //FUNCTIONS
 //

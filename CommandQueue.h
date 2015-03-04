@@ -47,6 +47,10 @@
 #include "SystemConfiguration.h"
 #include "SimulatorObject.h"
 
+#ifdef VICTIMBUFFER
+#include "Buffer.h"
+#endif
+
 using namespace std;
 
 namespace DRAMSim
@@ -62,7 +66,12 @@ public:
 	typedef vector<BusPacket2D> BusPacket3D;
 
 	//functions
+#ifndef VICTIMBUFFER
 	CommandQueue(vector< vector<BankState> > &states, ostream &dramsim_log);
+#else
+	CommandQueue(vector< vector<BankState> > &states, vector< vector<Buffer> > &buffers, ostream &dramsim_log);
+	bool isIssuable2Buffer(BusPacket *busPacket);
+#endif
 	virtual ~CommandQueue(); 
 
 	void enqueue(BusPacket *newBusPacket);
@@ -72,6 +81,9 @@ public:
 	bool isEmpty(unsigned rank);
 	void needRefresh(unsigned rank);
 	void print();
+#ifdef VICTIMBUFFER
+	void needRestore(unsigned rank, unsigned bank, unsigned row, unsigned col);
+#endif
 	void update(); //SimulatorObject requirement
 	vector<BusPacket *> &getCommandQueue(unsigned rank, unsigned bank);
 
@@ -79,9 +91,24 @@ public:
 	
 	BusPacket3D queues; // 3D array of BusPacket pointers
 	vector< vector<BankState> > &bankStates;
+
+#ifdef VICTIMBUFFER
+	vector < vector<Buffer> > &bankBuffers;
+#endif
+
 private:
 	void nextRankAndBank(unsigned &rank, unsigned &bank);
 	//fields
+#ifdef VICTIMBUFFER
+	unsigned restoreRank;
+	unsigned restoreBank;
+    unsigned restoreRow;
+
+    unsigned fetchRow;
+    unsigned fetchCol;
+
+	bool restoreWaiting;
+#endif
 	unsigned nextBank;
 	unsigned nextRank;
 

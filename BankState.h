@@ -71,6 +71,11 @@ public:
 	uint64_t nextPowerUp;
 
 	BusPacketType lastCommand;
+#ifdef VICTIMBUFFER
+	uint64_t nextRestore;
+	unsigned lastRow;
+	unsigned lastCol;
+#endif
 	unsigned stateChangeCountdown;
 
 	//Functions

@@ -41,6 +41,13 @@ namespace DRAMSim
 {
 enum BusPacketType
 {
+#ifdef VICTIMBUFFER
+	FETCH,
+	RESTORE,	
+	READ_B,
+	WRITE_B,
+#endif
+	//END_MOD
 	READ,
 	READ_P,
 	WRITE,

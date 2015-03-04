@@ -46,9 +46,22 @@
 
 using namespace DRAMSim;
 
-CommandQueue::CommandQueue(vector< vector<BankState> > &states, ostream &dramsim_log_) :
+CommandQueue::CommandQueue(vector< vector<BankState> > &states,
+#ifdef VICTIMBUFFER
+		vector < vector<Buffer> > &buffers,
+#endif
+		ostream &dramsim_log_) :
 		dramsim_log(dramsim_log_),
 		bankStates(states),
+#ifdef VICTIMBUFFER
+		bankBuffers(buffers),
+		restoreRank(0),
+		restoreBank(0),
+		restoreRow(0),
+		fetchRow(0),
+		fetchCol(0),
+		restoreWaiting(false),
+#endif
 		nextBank(0),
 		nextRank(0),
 		nextBankPRE(0),
@@ -328,6 +341,39 @@ bool CommandQueue::pop(BusPacket **busPacket)
 	else if (rowBufferPolicy==OpenPage)
 	{
 		bool sendingREForPRE = false;
+
+#ifdef VICTIMBUFFER
+        // make sure restore bank active and timing met for a RESTORE
+        if (restoreWaiting)
+        {
+            // setp-2: activate restored row
+            if ((bankStates[restoreRank][restoreBank].currentBankState == Idle ||
+                        bankStates[restoreRank][restoreBank].currentBankState == Refreshing) &&
+                    currentClockCycle >= bankStates[restoreRank][restoreBank].nextActivate &&
+                    tFAWCountdown[restoreRank].size() < 4)
+            {
+                // activate the restore block's row
+                *busPacket = new BusPacket(ACTIVATE, 0, 0, restoreRow, restoreRank, restoreBank, 0, dramsim_log);
+                // it's an activate, add to tfaw counter
+                tFAWCountdown[restoreRank].push_back(tFAW);
+                return true;
+            }
+
+            // setp-3: restore that row
+            if (bankStates[restoreRank][restoreBank].currentBankState == RowActive
+                    && currentClockCycle >= bankStates[restoreRank][restoreBank].nextRestore)
+            {
+                // check restore block's row address
+                if ( bankStates[restoreRank][restoreBank].openRowAddress !=  restoreRow)
+                    ERROR(" restore row is not the open row");
+
+                // we use fetchCol and fetchRow to targeting buffer's set
+                *busPacket = new BusPacket(RESTORE, 0, fetchCol, fetchRow, restoreRank, restoreBank,0,dramsim_log);
+                restoreWaiting = false;
+                return true;
+            }
+        }
+#endif
 		if (refreshWaiting)
 		{
 			bool sendREF = true;
@@ -409,13 +455,63 @@ bool CommandQueue::pop(BusPacket **busPacket)
 			do // round robin over queues
 			{
 				vector<BusPacket *> &queue = getCommandQueue(nextRank,nextBank);
-				//make sure there is something there first
+                //make sure there is something there first
+#ifdef VICTIMBUFFER
+				if (!queue.empty() && !((nextRank == refreshRank) && refreshWaiting) && !((nextRank == restoreRank) && restoreWaiting))
+#else
 				if (!queue.empty() && !((nextRank == refreshRank) && refreshWaiting))
+#endif
 				{
 					//search from the beginning to find first issuable bus packet
 					for (size_t i=0;i<queue.size();i++)
 					{
 						BusPacket *packet = queue[i];
+#ifdef VICTIMBUFFER
+                        if (isIssuable2Buffer(packet))
+                        {
+                            //check for dependencies
+                            bool dependencyFound = false;
+                            for (size_t j=0;j<i;j++)
+                            {
+                                BusPacket *prevPacket = queue[j];
+                                if (prevPacket->busPacketType != ACTIVATE &&
+                                        prevPacket->bank == packet->bank &&
+                                        prevPacket->row == packet->row)
+                                {
+                                    dependencyFound = true;
+                                    break;
+                                }
+                            }
+                            if (dependencyFound) continue;
+
+                            // append *_B* suffix indicating its target is buffer 
+                            if (packet->busPacketType == READ) packet->busPacketType = READ_B;
+                            if (packet->busPacketType == WRITE) packet->busPacketType = WRITE_B;
+
+                            *busPacket = packet;
+
+                            //if the bus packet before is an activate, that is the act that was
+                            //	paired with the column access we are removing, so we have to remove
+                            //	that activate as well (check i>0 because if i==0 then theres nothing before it)
+                            if (i>0 && queue[i-1]->busPacketType == ACTIVATE)
+                            {
+                            //	rowAccessCounters[(*busPacket)->rank][(*busPacket)->bank]++;
+                                // i is being returned, but i-1 is being thrown away, so must delete it here 
+                                delete (queue[i-1]);
+
+                                // remove both i-1 (the activate) and i (we've saved the pointer in *busPacket)
+                                queue.erase(queue.begin()+i-1,queue.begin()+i+1);
+                            }
+                            else // there's no activate before this packet
+                            {
+                                //or just remove the one bus packet
+                                queue.erase(queue.begin()+i);
+                            }
+
+                            foundIssuable = true;
+                            break;
+                        }
+#endif
 						if (isIssuable(packet))
 						{
 							//check for dependencies
@@ -512,6 +608,39 @@ bool CommandQueue::pop(BusPacket **busPacket)
 						//if nothing found going to that bank and row or too many accesses have happend, close it
 						if (!found || rowAccessCounters[nextRankPRE][nextBankPRE]==TOTAL_ROW_ACCESSES)
 						{
+#ifdef VICTIMBUFFER
+                            // before precharge, make sure its row fetched
+                            unsigned row = bankStates[nextRankPRE][nextBankPRE].lastRow;
+                            unsigned col = bankStates[nextRankPRE][nextBankPRE].lastCol;
+
+                            // using nextPrecharge for fetch timing check
+                            if (!bankBuffers[nextRankPRE][nextBankPRE].probe(row, col)
+                                    && currentClockCycle >= bankStates[nextRankPRE][nextBankPRE].nextPrecharge)
+                            {
+                                // NOTE: restore occasion, open row differ from last accessed row
+                                // if( row != bankStates[nextRankPRE][nextBankPRE].openRowAddress)
+                                // {
+                                //     ERROR("fetching row is not the openRowAddress");
+                                //     exit(-1);
+                                // }
+
+								bool sendingFEH = true;
+
+                                // setp-1: before FETCH, make sure target block's state is not modified
+                                // otherwise, precharge this row and need to restore 
+                                if (!bankBuffers[nextRankPRE][nextBankPRE].isFetchSafe(row, col, restoreRow))
+                                {
+                                    sendingFEH = false;
+                                    needRestore(nextRankPRE, nextBankPRE, row, col);
+                                }
+
+								if (sendingFEH)
+								{// OK, ...sending a FETCH
+									*busPacket = new BusPacket(FETCH, 0, col, row, nextRankPRE, nextBankPRE, 0, dramsim_log);
+                                    return true;
+								}
+                            }
+#endif
 							if (currentClockCycle >= bankStates[nextRankPRE][nextBankPRE].nextPrecharge)
 							{
 								sendingPRE = true;
@@ -621,6 +750,56 @@ vector<BusPacket *> &CommandQueue::getCommandQueue(unsigned rank, unsigned bank)
 
 }
 
+#ifdef VICTIMBUFFER
+//checks if busPacket is allowed to be issued to Victim Buffer
+bool CommandQueue::isIssuable2Buffer(BusPacket *busPacket)
+{
+    if (DEBUG_BUFFERSTATE)
+    {
+	    // DEBUGN(" ** MC To Buffer checking : ");
+        // busPacket->print();
+    }
+	switch (busPacket->busPacketType)
+	{
+	case ACTIVATE:
+        // ACT will always not be allowed to issued to Victim Buffer
+	    // DEBUG("[ACT] not allowed");
+		return false;
+		break;
+	case READ:
+        // check if data in buffer block and timing met
+		if (bankBuffers[busPacket->rank][busPacket->bank].probe(busPacket->row, busPacket->column) 
+                && currentClockCycle >= bankBuffers[busPacket->rank][busPacket->bank].nextRead)
+		{
+	        // DEBUG("[READ | READ_B] hit");
+			return true;
+		}
+		else
+		{
+			return false;
+		}
+		break;
+	case WRITE:
+        // check if data in buffer block and timing met, issue WRITE_B 
+        if (bankBuffers[busPacket->rank][busPacket->bank].probe(busPacket->row, busPacket->column)
+                && currentClockCycle >= bankBuffers[busPacket->rank][busPacket->bank].nextWrite)
+		{
+			return false;
+		}
+		else
+		{
+			return false;
+		}
+		break;
+	default:
+		ERROR("== Error - Trying to issue a crazy bus packet type : ");
+		busPacket->print();
+		exit(0);
+	}
+	return false;
+}
+#endif
+
 //checks if busPacket is allowed to be issued
 bool CommandQueue::isIssuable(BusPacket *busPacket)
 {
@@ -717,6 +896,19 @@ void CommandQueue::needRefresh(unsigned rank)
 	refreshWaiting = true;
 	refreshRank = rank;
 }
+
+#ifdef VICTIMBUFFER
+void CommandQueue::needRestore(unsigned rank, unsigned bank, unsigned row, unsigned col)
+{
+	restoreRank = rank;
+	restoreBank = bank;
+
+    fetchRow = row;
+    fetchCol = col;
+    
+	restoreWaiting = true;
+}
+#endif
 
 void CommandQueue::nextRankAndBank(unsigned &rank, unsigned &bank)
 {

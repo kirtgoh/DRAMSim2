@@ -44,6 +44,9 @@ Rank::Rank(ostream &dramsim_log_) :
 	refreshWaiting(false),
 	readReturnCountdown(0),
 	banks(NUM_BANKS, Bank(dramsim_log_)),
+#ifdef VICTIMBUFFER
+	bankBuffers(NUM_BANKS, Buffer(dramsim_log_)),
+#endif
 	bankStates(NUM_BANKS, BankState(dramsim_log_))
 
 {
@@ -91,8 +94,83 @@ void Rank::receiveFromBus(BusPacket *packet)
 		packet->print(currentClockCycle,false);
 	}
 
+#ifdef VICTIMBUFFER
+	if (packet->busPacketType == READ ||
+			packet->busPacketType == WRITE) {
+		bankStates[packet->bank].lastRow = packet->row;
+		bankStates[packet->bank].lastCol = packet->column;
+	}
+#endif
+
 	switch (packet->busPacketType)
 	{
+#ifdef VICTIMBUFFER
+	case RESTORE:
+		bankStates[packet->bank].lastCommand = RESTORE;
+		bankBuffers[packet->bank].bufferAccess(packet);
+        // FIXME: nextRead/nextWrite update 
+		break;
+	case FETCH:
+		bankBuffers[packet->bank].bufferAccess(packet);
+		bankBuffers[packet->bank].nextRead = max(currentClockCycle, bankStates[packet->bank].nextRead);
+		bankBuffers[packet->bank].nextWrite = max(currentClockCycle, bankStates[packet->bank].nextRead);
+		break;
+	case READ_B:
+		if (!bankBuffers[packet->bank].probe(packet->row, packet->column)
+                && currentClockCycle > bankBuffers[packet->bank].nextRead)
+		{
+			ERROR("CLOCK: "<< currentClockCycle <<" Accessed a READ while not hitted in bankBuffers\n");
+			exit(0);
+		}
+		bankBuffers[packet->bank].bufferAccess(packet);
+
+		//update buffer and bank state table
+		for (size_t i=0;i<NUM_BANKS;i++)
+		{
+			bankBuffers[i].nextRead = max(bankBuffers[i].nextRead, currentClockCycle + BL/2);
+			bankBuffers[i].nextWrite = max(bankBuffers[i].nextWrite, currentClockCycle + READ_TO_WRITE_DELAY);
+
+			bankStates[i].nextRead = max(bankStates[i].nextRead, currentClockCycle + BL/2);
+			bankStates[i].nextWrite = max(bankStates[i].nextWrite, currentClockCycle + READ_TO_WRITE_DELAY);
+		}
+
+#ifndef NO_STORAGE
+		banks[packet->bank].read(packet);
+#else
+		packet->busPacketType = DATA;
+#endif
+		readReturnPacket.push_back(packet);
+		readReturnCountdown.push_back(RL);
+		break;
+	case WRITE_B:
+		//make sure WRITE_B allowed
+		if (!bankBuffers[packet->bank].probe(packet->row, packet->column)
+		        && currentClockCycle < bankBuffers[packet->bank].nextWrite)
+		{
+			ERROR("== Error - Rank " << id << " received a WRITE_B when not allowed");
+			packet->print();
+			exit(0);
+		}
+
+		bankBuffers[packet->bank].bufferAccess(packet);
+
+		//update buffer and bank state table
+		for (size_t i=0;i<NUM_BANKS;i++)
+		{
+			bankBuffers[i].nextRead = max(bankBuffers[i].nextRead, currentClockCycle + WRITE_TO_READ_DELAY_B);
+			bankBuffers[i].nextWrite = max(bankBuffers[i].nextWrite, currentClockCycle + max(BL/2, tCCD));
+
+			bankStates[i].nextRead = max(bankStates[i].nextRead, currentClockCycle + WRITE_TO_READ_DELAY_B);
+			bankStates[i].nextWrite = max(bankStates[i].nextWrite, currentClockCycle + max(BL/2, tCCD));
+		}
+
+		//take note of where data is going when it arrives
+		incomingWriteBank = packet->bank;
+		incomingWriteRow = packet->row;
+		incomingWriteColumn = packet->column;
+		delete(packet);
+		break;
+#endif
 	case READ:
 		//make sure a read is allowed
 		if (bankStates[packet->bank].currentBankState != RowActive ||
@@ -236,6 +314,9 @@ void Rank::receiveFromBus(BusPacket *packet)
 				bankStates[i].nextActivate = max(bankStates[i].nextActivate, currentClockCycle + tRRD);
 			}
 		}
+#ifdef VICTUMBUFFER
+		bankStates[packet->bank].nextRestore= max(currentClockCycle + tRCD, bankStates[packet->bank].nextRestore);
+#endif
 		delete(packet); 
 		break;
 	case PRECHARGE:

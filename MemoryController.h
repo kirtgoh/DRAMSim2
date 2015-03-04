@@ -47,6 +47,10 @@
 #include "CSVWriter.h"
 #include <map>
 
+#ifdef VICTIMBUFFER
+#include "Buffer.h"
+#endif
+
 using namespace std;
 
 namespace DRAMSim
@@ -75,6 +79,9 @@ public:
 private:
 	ostream &dramsim_log;
 	vector< vector <BankState> > bankStates;
+#ifdef VICTIMBUFFER
+	vector < vector<Buffer> > bankBuffers;
+#endif
 	//functions
 	void insertHistogram(unsigned latencyValue, unsigned rank, unsigned bank);
 	void insertHistogramACT(unsigned usecount);

@@ -56,6 +56,11 @@ BankState::BankState(ostream &dramsim_log_):
 		nextPrecharge(0),
 		nextPowerUp(0),
 		lastCommand(READ),
+#ifdef VICTIMBUFFER
+		nextRestore(0),
+		lastRow(0),
+		lastCol(0),
+#endif
 		stateChangeCountdown(0)
 {}
 

@@ -75,6 +75,20 @@ void BusPacket::print(uint64_t currentClockCycle, bool dataStart)
 		case READ_P:
 			cmd_verify_out << currentClockCycle << ": read ("<<rank<<","<<bank<<","<<column<<",1);"<<endl;
 			break;
+#ifdef VICTIMBUFFER
+		case READ_B:
+			cmd_verify_out << currentClockCycle << ": read_b (0x"<<hex<<physicalAddress<<dec<<","<<rank<<","<<bank<<","<<row<<","<<column<<",2);"<<endl;
+			break;
+		case RESTORE:
+			cmd_verify_out << currentClockCycle << ": restore (0x"<<hex<<physicalAddress<<dec<<","<<rank<<","<<bank<<","<<row<<","<<column<<",2);"<<endl;
+			break;
+		case FETCH:
+			cmd_verify_out << currentClockCycle << ": fetch (0x"<<hex<<physicalAddress<<dec<<","<<rank<<","<<bank<<","<<row<<","<<column<<",2);"<<endl;
+			break;
+		case WRITE_B:
+			cmd_verify_out << currentClockCycle << ": write_b (0x"<<hex<<physicalAddress<<dec<<","<<rank<<","<<bank<<","<<column<<",0 , 0, 'h0);"<<endl;
+			break;
+#endif
 		case WRITE:
 			cmd_verify_out << currentClockCycle << ": write ("<<rank<<","<<bank<<","<<column<<",0 , 0, 'h0);"<<endl;
 			break;
@@ -135,6 +149,20 @@ void BusPacket::print()
 			printData();
 			PRINT("");
 			break;
+#ifdef VICTIMBUFFER
+		case READ_B:
+			PRINT("BP [READ_B] pa[0x"<<hex<<physicalAddress<<dec<<"] r["<<rank<<"] b["<<bank<<"] row["<<row<<"] col["<<column<<"]");
+			break;
+		case WRITE_B:
+			PRINT("BP [WRITE_B] pa[0x"<<hex<<physicalAddress<<dec<<"] r["<<rank<<"] b["<<bank<<"] row["<<row<<"] col["<<column<<"]");
+			break;
+		case RESTORE:
+			PRINT("BP [RSTORE] pa[0x"<<hex<<physicalAddress<<dec<<"] r["<<rank<<"] b["<<bank<<"] row["<<row<<"] col["<<column<<"]");
+			break;
+		case FETCH:
+			PRINT("BP [FETCH] pa[0x"<<hex<<physicalAddress<<dec<<"] r["<<rank<<"] b["<<bank<<"] row["<<row<<"] col["<<column<<"]");
+			break;
+#endif
 		default:
 			ERROR("Trying to print unknown kind of bus packet");
 			exit(-1);

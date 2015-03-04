@@ -40,6 +40,10 @@
 #include "Bank.h"
 #include "BankState.h"
 
+#ifdef VICTIMBUFFER
+#include "Buffer.h"
+#endif
+
 using namespace std;
 using namespace DRAMSim;
 
@@ -78,6 +82,9 @@ public:
 	vector<BusPacket *> readReturnPacket;
 	vector<unsigned> readReturnCountdown;
 	vector<Bank> banks;
+#ifdef VICTIMBUFFER
+	vector<Buffer> bankBuffers;
+#endif
 	vector<BankState> bankStates;
 
 };

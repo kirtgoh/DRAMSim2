@@ -95,7 +95,7 @@ buffer = ARGUMENTS.get('buffer',0)
 if int(buffer) == 1:
 	env.Append(CCFLAGS = '-DVICTIMBUFFER')
 else:
-	# src_files.remove(File('Buffer.cpp'))
+	src_files.remove(File('Buffer.cpp'))
 	if int(debug) == 1:
 		if 'test' in dirs:
 			dirs.remove('tests')

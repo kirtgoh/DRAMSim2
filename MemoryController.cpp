@@ -476,10 +476,6 @@ void MemoryController::update()
 				bankStates[rank][bank].openRowAddress = poppedBusPacket->row;
 				bankStates[rank][bank].nextActivate = max(currentClockCycle + tRC, bankStates[rank][bank].nextActivate);
 				bankStates[rank][bank].nextPrecharge = max(currentClockCycle + tRAS, bankStates[rank][bank].nextPrecharge);
-#ifdef VICTIMBUFFER
-                // FIXME: used nextRead have some problem, when other bank read or write, nextRead may bigger
-				bankStates[rank][bank].nextRestore= max(currentClockCycle + tRCD, bankStates[rank][bank].nextRestore);
-#endif
 
 				//if we are using posted-CAS, the next column access can be sooner than normal operation
 
@@ -532,15 +528,16 @@ void MemoryController::update()
 				// fetch segments of row to victim buffer
 				bankBuffers[rank][bank].bufferAccess(poppedBusPacket);
 
-				// avoid data bus collpase with row buffer access
-				// FIXME: tAPD is 2 cycles
-				bankBuffers[rank][bank].nextRead = max(currentClockCycle + 2, bankStates[rank][bank].nextRead);
-				bankBuffers[rank][bank].nextWrite = max(currentClockCycle + 2, bankStates[rank][bank].nextWrite);
+				// NOTE: we set this fetching time in correspondence with tRCD cycles
+				// FIXME: when fetching, other segments should be operated in parallel
+				bankBuffers[rank][bank].nextRead = max(currentClockCycle + tRCD, bankStates[rank][bank].nextRead);
+				bankBuffers[rank][bank].nextWrite = max(currentClockCycle + tRCD, bankStates[rank][bank].nextWrite);
 
 				break;
 			case READ_B:
+				burstEnergy[rank] += (IDD4R - IDD3N) * BL/2 * NUM_DEVICES;
 				bankBuffers[rank][bank].bufferAccess(poppedBusPacket);
-				// grandHitVTrans++;
+				totalUsesPerBank[SEQUENTIAL(rank,bank)]++;
 
 				for (size_t i=0;i<NUM_RANKS;i++)
 				{
@@ -573,8 +570,9 @@ void MemoryController::update()
 
 				break;
 			case WRITE_B:
+				burstEnergy[rank] += (IDD4W - IDD3N) * BL/2 * NUM_DEVICES;
 				bankBuffers[rank][bank].bufferAccess(poppedBusPacket);
-				// grandHitVTrans++;
+				totalUsesPerBank[SEQUENTIAL(rank,bank)]++;
 
 				for (size_t i=0;i<NUM_RANKS;i++)
 				{
@@ -605,12 +603,16 @@ void MemoryController::update()
 
 				break;
 			case RESTORE:
-                // FIXME: nextRestore's timing is right ?
+                // NOTE: restore procedure will postpone RB's FETCH command (nextPercharge used)
 				bankStates[rank][bank].lastCommand = RESTORE;
+				bankStates[rank][bank].nextPrecharge = max(currentClockCycle + tWR, bankStates[rank][bank].nextPrecharge);
+
 				bankBuffers[rank][bank].bufferAccess(poppedBusPacket);
 
-				bankBuffers[rank][bank].nextRead = max(currentClockCycle + 2, bankStates[rank][bank].nextRead);
-				bankBuffers[rank][bank].nextWrite = max(currentClockCycle + 2, bankStates[rank][bank].nextWrite);
+				// FIXME: other segments should be operated in parallel
+				bankBuffers[rank][bank].nextRead = max(currentClockCycle + tWR, bankStates[rank][bank].nextRead);
+				bankBuffers[rank][bank].nextWrite = max(currentClockCycle + tWR, bankStates[rank][bank].nextWrite);
+
 				break;
 #endif
 			default:

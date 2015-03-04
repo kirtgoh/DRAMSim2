@@ -107,6 +107,7 @@ void Rank::receiveFromBus(BusPacket *packet)
 #ifdef VICTIMBUFFER
 	case RESTORE:
 		bankStates[packet->bank].lastCommand = RESTORE;
+		bankStates[packet->bank].nextPrecharge = max(currentClockCycle + tWR, bankStates[packet->bank].nextPrecharge);
 		bankBuffers[packet->bank].bufferAccess(packet);
         // FIXME: nextRead/nextWrite update 
 		break;
@@ -314,9 +315,6 @@ void Rank::receiveFromBus(BusPacket *packet)
 				bankStates[i].nextActivate = max(bankStates[i].nextActivate, currentClockCycle + tRRD);
 			}
 		}
-#ifdef VICTUMBUFFER
-		bankStates[packet->bank].nextRestore= max(currentClockCycle + tRCD, bankStates[packet->bank].nextRestore);
-#endif
 		delete(packet); 
 		break;
 	case PRECHARGE:

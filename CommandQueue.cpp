@@ -55,12 +55,7 @@ CommandQueue::CommandQueue(vector< vector<BankState> > &states,
 		bankStates(states),
 #ifdef VICTIMBUFFER
 		bankBuffers(buffers),
-		restoreRank(0),
-		restoreBank(0),
 		restoreRow(0),
-		fetchRow(0),
-		fetchCol(0),
-		restoreWaiting(false),
 #endif
 		nextBank(0),
 		nextRank(0),
@@ -341,39 +336,6 @@ bool CommandQueue::pop(BusPacket **busPacket)
 	else if (rowBufferPolicy==OpenPage)
 	{
 		bool sendingREForPRE = false;
-
-#ifdef VICTIMBUFFER
-        // make sure restore bank active and timing met for a RESTORE
-        if (restoreWaiting)
-        {
-            // setp-2: activate restored row
-            if ((bankStates[restoreRank][restoreBank].currentBankState == Idle ||
-                        bankStates[restoreRank][restoreBank].currentBankState == Refreshing) &&
-                    currentClockCycle >= bankStates[restoreRank][restoreBank].nextActivate &&
-                    tFAWCountdown[restoreRank].size() < 4)
-            {
-                // activate the restore block's row
-                *busPacket = new BusPacket(ACTIVATE, 0, 0, restoreRow, restoreRank, restoreBank, 0, dramsim_log);
-                // it's an activate, add to tfaw counter
-                tFAWCountdown[restoreRank].push_back(tFAW);
-                return true;
-            }
-
-            // setp-3: restore that row
-            if (bankStates[restoreRank][restoreBank].currentBankState == RowActive
-                    && currentClockCycle >= bankStates[restoreRank][restoreBank].nextRestore)
-            {
-                // check restore block's row address
-                if ( bankStates[restoreRank][restoreBank].openRowAddress !=  restoreRow)
-                    ERROR(" restore row is not the open row");
-
-                // we use fetchCol and fetchRow to targeting buffer's set
-                *busPacket = new BusPacket(RESTORE, 0, fetchCol, fetchRow, restoreRank, restoreBank,0,dramsim_log);
-                restoreWaiting = false;
-                return true;
-            }
-        }
-#endif
 		if (refreshWaiting)
 		{
 			bool sendREF = true;
@@ -456,11 +418,7 @@ bool CommandQueue::pop(BusPacket **busPacket)
 			{
 				vector<BusPacket *> &queue = getCommandQueue(nextRank,nextBank);
                 //make sure there is something there first
-#ifdef VICTIMBUFFER
-				if (!queue.empty() && !((nextRank == refreshRank) && refreshWaiting) && !((nextRank == restoreRank) && restoreWaiting))
-#else
 				if (!queue.empty() && !((nextRank == refreshRank) && refreshWaiting))
-#endif
 				{
 					//search from the beginning to find first issuable bus packet
 					for (size_t i=0;i<queue.size();i++)
@@ -617,7 +575,6 @@ bool CommandQueue::pop(BusPacket **busPacket)
                             if (!bankBuffers[nextRankPRE][nextBankPRE].probe(row, col)
                                     && currentClockCycle >= bankStates[nextRankPRE][nextBankPRE].nextPrecharge)
                             {
-                                // NOTE: restore occasion, open row differ from last accessed row
                                 // if( row != bankStates[nextRankPRE][nextBankPRE].openRowAddress)
                                 // {
                                 //     ERROR("fetching row is not the openRowAddress");
@@ -626,12 +583,13 @@ bool CommandQueue::pop(BusPacket **busPacket)
 
 								bool sendingFEH = true;
 
-                                // setp-1: before FETCH, make sure target block's state is not modified
-                                // otherwise, precharge this row and need to restore 
+                                // Before FETCH, make sure target block's state is not modified
                                 if (!bankBuffers[nextRankPRE][nextBankPRE].isFetchSafe(row, col, restoreRow))
                                 {
+									// restoreRow is the buffer's modified row
                                     sendingFEH = false;
-                                    needRestore(nextRankPRE, nextBankPRE, row, col);
+									*busPacket = new BusPacket(RESTORE, 0, 0/* segment ignored, but should needed */, restoreRow, nextRankPRE, nextBankPRE,0,dramsim_log);
+                                    return true;
                                 }
 
 								if (sendingFEH)
@@ -896,19 +854,6 @@ void CommandQueue::needRefresh(unsigned rank)
 	refreshWaiting = true;
 	refreshRank = rank;
 }
-
-#ifdef VICTIMBUFFER
-void CommandQueue::needRestore(unsigned rank, unsigned bank, unsigned row, unsigned col)
-{
-	restoreRank = rank;
-	restoreBank = bank;
-
-    fetchRow = row;
-    fetchCol = col;
-    
-	restoreWaiting = true;
-}
-#endif
 
 void CommandQueue::nextRankAndBank(unsigned &rank, unsigned &bank)
 {

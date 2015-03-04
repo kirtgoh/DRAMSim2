@@ -81,9 +81,9 @@ public:
 	bool isEmpty(unsigned rank);
 	void needRefresh(unsigned rank);
 	void print();
-#ifdef VICTIMBUFFER
-	void needRestore(unsigned rank, unsigned bank, unsigned row, unsigned col);
-#endif
+// #ifdef VICTIMBUFFER
+// 	void needRestore(unsigned rank, unsigned bank, unsigned row, unsigned col);
+// #endif
 	void update(); //SimulatorObject requirement
 	vector<BusPacket *> &getCommandQueue(unsigned rank, unsigned bank);
 
@@ -100,14 +100,14 @@ private:
 	void nextRankAndBank(unsigned &rank, unsigned &bank);
 	//fields
 #ifdef VICTIMBUFFER
-	unsigned restoreRank;
-	unsigned restoreBank;
+	// unsigned restoreRank;
+	// unsigned restoreBank;
     unsigned restoreRow;
 
-    unsigned fetchRow;
-    unsigned fetchCol;
-
-	bool restoreWaiting;
+    // unsigned fetchRow;
+    // unsigned fetchCol;
+    //
+	// bool restoreWaiting;
 #endif
 	unsigned nextBank;
 	unsigned nextRank;

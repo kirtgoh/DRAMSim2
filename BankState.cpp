@@ -57,7 +57,6 @@ BankState::BankState(ostream &dramsim_log_):
 		nextPowerUp(0),
 		lastCommand(READ),
 #ifdef VICTIMBUFFER
-		nextRestore(0),
 		lastRow(0),
 		lastCol(0),
 #endif

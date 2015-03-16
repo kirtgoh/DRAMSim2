@@ -99,6 +99,12 @@ private:
 
 	vector<uint64_t> totalUsesPerBank; // total row buffer use count before precharege
 	uint64_t grandPREs;
+	uint64_t pendingWriteTransactions; // for MLP
+	uint64_t totalPendingTransAllcycles;
+	uint64_t totalValidCycles;
+
+	uint64_t totalOpenedBanks; // for BLP
+	uint64_t totalValidCyclesBLP;
 
 	map<unsigned,unsigned> usecounts; // row buffer usecount-> count 
 
@@ -109,6 +115,8 @@ private:
 	unsigned dataCyclesLeft;
 
 	uint64_t totalTransactions;
+	uint64_t totalReads;
+	uint64_t totalWrites;
 	vector<uint64_t> grandTotalBankAccesses; 
 	vector<uint64_t> totalReadsPerBank;
 	vector<uint64_t> totalWritesPerBank;

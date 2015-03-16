@@ -100,6 +100,18 @@ MemoryController::MemoryController(MemorySystem *parent, CSVWriter &csvOut_, ost
 	totalUsesPerBank= vector<uint64_t>(NUM_RANKS*NUM_BANKS,0);
 	grandPREs = 0;
 
+	//MLP
+	pendingWriteTransactions = 0;
+	totalPendingTransAllcycles = 0;
+	totalValidCycles = 0;
+
+	//BLP
+	totalOpenedBanks = 0;
+	totalValidCyclesBLP = 0;
+
+	totalReads = 0;
+	totalWrites = 0;
+
 	writeDataCountdown.reserve(NUM_RANKS);
 	writeDataToSend.reserve(NUM_RANKS);
 	refreshCountdown.reserve(NUM_RANKS);
@@ -168,6 +180,9 @@ void MemoryController::update()
 {
 
 	//PRINT(" ------------------------- [" << currentClockCycle << "] -------------------------");
+	
+	//BLP
+	unsigned BLPperCycle = 0;
 
 	//update bank states
 	for (size_t i=0;i<NUM_RANKS;i++)
@@ -201,7 +216,19 @@ void MemoryController::update()
 					}
 				}
 			}
+
+			//for BLP
+			if(bankStates[i][j].currentBankState == RowActive)
+			{
+				BLPperCycle++;
+			}
 		}
+	}
+
+	if (BLPperCycle > 0)
+	{
+		totalOpenedBanks += BLPperCycle;
+		totalValidCyclesBLP++;
 	}
 
 
@@ -266,10 +293,12 @@ void MemoryController::update()
 			dataCyclesLeft = BL/2;
 
 			totalTransactions++;
+			totalWrites++;
 			totalWritesPerBank[SEQUENTIAL(writeDataToSend[0]->rank,writeDataToSend[0]->bank)]++;
 
 			writeDataCountdown.erase(writeDataCountdown.begin());
 			writeDataToSend.erase(writeDataToSend.begin());
+			pendingWriteTransactions--;
 		}
 	}
 
@@ -700,6 +729,11 @@ void MemoryController::update()
 			{
 				pendingReadTransactions.push_back(transaction);
 			}
+			else if (transaction->transactionType == DATA_WRITE)
+			{
+				// for MLP
+				pendingWriteTransactions++;
+			}
 			else
 			{
 				// just delete the transaction now that it's a buspacket
@@ -815,6 +849,7 @@ void MemoryController::update()
 			PRINTN(" -- MC Issuing to CPU bus : " << *returnTransaction[0]);
 		}
 		totalTransactions++;
+		totalReads++;
 
 		bool foundMatch=false;
 		//find the pending read transaction to calculate latency
@@ -905,6 +940,15 @@ void MemoryController::update()
 	}
 
 	commandQueue.step();
+
+	//for MLP
+	unsigned MLPperCycle = transactionQueue.size() + pendingReadTransactions.size() + pendingWriteTransactions;
+	totalPendingTransAllcycles += MLPperCycle;
+	if (MLPperCycle> 0)
+	{
+		totalValidCycles++;
+	}
+
 
 }
 
@@ -1089,7 +1133,12 @@ void MemoryController::printStats(bool finalStats)
 		}
 		if (VIS_FILE_OUTPUT)
 		{
+			csvOut.getOutputStream() << "totalTransactions ="<< totalTransactions <<endl;
+			csvOut.getOutputStream() << "totalReads ="<< totalReads <<endl;
+			csvOut.getOutputStream() << "totalWrites ="<< totalWrites <<endl;
 			csvOut.getOutputStream() << "RBHR ="<< (float) (totalTransactions - grandPREs) / totalTransactions <<endl;
+			csvOut.getOutputStream() << "MLP ="<< (float) totalPendingTransAllcycles / totalValidCycles <<endl;
+			csvOut.getOutputStream() << "BLP ="<< (float) totalOpenedBanks / totalValidCyclesBLP <<endl;
 		}
 		// usecount
 		map<unsigned,unsigned>::iterator it_c; //
@@ -1098,7 +1147,7 @@ void MemoryController::printStats(bool finalStats)
 			PRINT( "       ["<< it_c->first <<"-"<<it_c->first<<"] : "<< it_c->second );
 			if (VIS_FILE_OUTPUT)
 			{
-				csvOut.getOutputStream() << it_c->first <<"="<< it_c->second << endl;
+				csvOut.getOutputStream() << it_c->first <<" ="<< it_c->second << endl;
 			}
 		}
 
